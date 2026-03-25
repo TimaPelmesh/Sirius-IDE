@@ -8,8 +8,11 @@
              style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
              img-src 'self' data: blob:;
              font-src 'self' data: https://fonts.gstatic.com;
-             connect-src 'self' http://localhost:1234;
-             worker-src * blob:;" />
+             connect-src 'self' http://localhost:1234 http://127.0.0.1:1234;
+             object-src 'none';
+             base-uri 'self';
+             frame-ancestors 'none';
+             worker-src 'self' blob:;" />
   <title>Sirius IDE</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -49,11 +52,11 @@
 
 <!-- ── Menu Bar ──────────────────────────────────────────────── -->
 <div class="menubar" id="menubar">
-  <div class="mb-item" data-menu="file">Файл</div>
-  <div class="mb-item" data-menu="edit">Правка</div>
-  <div class="mb-item" data-menu="view">Вид</div>
-  <div class="mb-item" data-menu="run">Запуск</div>
-  <div class="mb-item" data-menu="window">Окно</div>
+  <div class="mb-item" data-menu="file" data-i18n="menu.file">Файл</div>
+  <div class="mb-item" data-menu="edit" data-i18n="menu.edit">Правка</div>
+  <div class="mb-item" data-menu="view" data-i18n="menu.view">Вид</div>
+  <div class="mb-item" data-menu="run" data-i18n="menu.run">Запуск</div>
+  <div class="mb-item" data-menu="window" data-i18n="menu.window">Окно</div>
 </div>
 
 <!-- ── Menu Dropdown ─────────────────────────────────────────── -->
@@ -65,10 +68,10 @@
   <!-- Activity Bar -->
   <nav class="activity-bar" id="activity-bar">
     <div class="ab-top">
-      <button class="ab-btn active" data-view="files" title="Explorer (Ctrl+B)">
+      <button class="ab-btn active" data-view="files" title="Explorer (Ctrl+B)" data-i18n-title="tab.files.title">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 3h8l2 3h8v14H3z"/></svg>
       </button>
-      <button class="ab-btn" data-view="search" title="Search (Ctrl+F)">
+      <button class="ab-btn" data-view="search" title="Search (Ctrl+F)" data-i18n-title="tab.search.title">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
       </button>
       <button class="ab-btn" data-view="ai" title="Sirius AI (Ctrl+Shift+A)">
@@ -76,14 +79,17 @@
       </button>
     </div>
     <div class="ab-bottom">
-      <button class="ab-btn" data-view="help" title="Документация">
+      <button class="ab-btn" data-view="help" title="Документация" data-i18n-title="tab.help.title">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
       </button>
       <button class="ab-btn" data-view="terminal" title="Terminal (Ctrl+`)">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="3" width="20" height="16" rx="2"/><polyline points="7,9 12,12 7,15"/><line x1="13" y1="15" x2="19" y2="15"/></svg>
       </button>
-      <button class="ab-btn" data-view="settings" title="Settings">
+      <button class="ab-btn" data-view="settings" title="Settings" data-i18n-title="tab.settings.title">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
+      <button class="ab-btn" data-view="security" title="Security / AI Journal" data-i18n-title="tab.security.title">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 2l8 3v6c0 5-3.5 9.5-8 11-4.5-1.5-8-6-8-11V5l8-3z"/><path d="M9.5 12.5l1.8 1.8 3.7-3.7"/></svg>
       </button>
     </div>
   </nav>
@@ -93,7 +99,7 @@
     <!-- Explorer Panel -->
     <div class="view-panel active" id="view-files">
       <div class="panel-header">
-        <span class="panel-title">Explorer</span>
+        <span class="panel-title" data-i18n="panel.explorer">Explorer</span>
         <div class="panel-actions">
           <button class="icon-btn" id="btn-new-file" title="Новый файл">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>
@@ -120,7 +126,7 @@
     <!-- Help Panel -->
     <div class="view-panel" id="view-help">
       <div class="panel-header">
-        <span class="panel-title">Документация</span>
+        <span class="panel-title" data-i18n="panel.docs">Документация</span>
       </div>
       <div class="help-content">
 
@@ -182,7 +188,7 @@
     <!-- Search Panel -->
     <div class="view-panel" id="view-search">
       <div class="panel-header">
-        <span class="panel-title">Search</span>
+        <span class="panel-title" data-i18n="panel.search">Search</span>
       </div>
       <div class="search-wrap">
         <input id="search-input" class="search-input" placeholder="Поиск в файлах…" />
@@ -190,48 +196,6 @@
       <div id="search-results" class="search-results"></div>
     </div>
 
-    <!-- Settings Panel -->
-    <div class="view-panel" id="view-settings">
-      <div class="panel-header">
-        <span class="panel-title">Настройки</span>
-      </div>
-      <div class="settings-content">
-
-        <div class="settings-section">
-          <div class="settings-label">Тема редактора</div>
-          <div class="settings-hint">Подсветка синтаксиса и фон редактора кода.</div>
-          <select id="settings-editor-theme" class="settings-select">
-            <option value="vs-dark">Тёмная (VS Dark)</option>
-            <option value="vs">Светлая (VS Light)</option>
-            <option value="one-dark">One Dark</option>
-            <option value="dracula">Dracula</option>
-            <option value="nord">Nord</option>
-          </select>
-        </div>
-
-        <div class="settings-section">
-          <div class="settings-label">Системный промпт (роль модели)</div>
-          <div class="settings-hint">
-            Кратко задаёт роль и стиль ответов. К нему автоматически добавляются: инструкции по инструментам (CREATEFILE, EDITFILE, READFILE, READDIR, DELETEFILE), контекст проекта и открытый файл.
-          </div>
-          <textarea id="settings-sysprompt" class="settings-textarea" rows="6"
-            placeholder="Ты — экспертный ИИ-ассистент в Sirius IDE. Отвечай на языке пользователя. Будь точным и действуй по инструкциям."></textarea>
-        </div>
-
-        <div class="settings-section settings-section-actions">
-          <button class="btn-primary" id="btn-save-settings">Сохранить</button>
-          <button class="btn-ghost" id="btn-reset-settings">Сбросить</button>
-        </div>
-
-        <div class="settings-section">
-          <div class="settings-label">Подсказка</div>
-          <div class="settings-hint">
-            Инструкции по файловым командам и контекст проекта подставляются автоматически. Здесь задаётся только «личность» модели (например: «Фокус на Python и чистом коде»).
-          </div>
-        </div>
-
-      </div>
-    </div>
   </aside>
 
   <!-- Resize Handle: sidebar ↔ editor -->
@@ -241,12 +205,31 @@
   <main class="editor-area" id="editor-area">
     <div class="tab-bar" id="tab-bar">
       <div class="tab-list" id="tab-list"></div>
+      <div class="tabbar-actions">
+        <button class="icon-btn" id="btn-split-editor" title="Split Editor (Alt+\\)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <rect x="3" y="4" width="18" height="16" rx="2"></rect>
+            <line x1="12" y1="4" x2="12" y2="20"></line>
+          </svg>
+        </button>
+        <button class="icon-btn" id="btn-split-term" title="Split Terminal">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <rect x="2.5" y="4" width="19" height="16" rx="2"></rect>
+            <line x1="12" y1="4" x2="12" y2="20"></line>
+            <polyline points="6,10 9,12 6,14"></polyline>
+            <line x1="14.5" y1="14" x2="18" y2="14"></line>
+          </svg>
+        </button>
+      </div>
     </div>
     <div class="breadcrumb-bar" id="breadcrumb-bar"></div>
 
     <!-- Editor: Monaco + fallback textarea -->
     <div id="editor-content" class="editor-content">
-      <div id="editor-wrap"></div>
+      <div class="editor-split-wrap" id="editor-split-wrap">
+        <div id="editor-wrap"></div>
+        <div id="editor-wrap-2" class="editor-wrap-secondary" hidden></div>
+      </div>
       <textarea id="editor-fallback" class="editor-fallback" spellcheck="false" placeholder="Содержимое файла"></textarea>
     </div>
     <!-- Welcome: separate overlay, covers editor when no file open -->
@@ -279,6 +262,82 @@
           </div>
         </div>
     </div><!-- /#welcome -->
+
+    <!-- Settings Screen -->
+    <div id="settings-screen" class="settings-screen" hidden>
+      <div class="settings-card">
+        <div class="settings-card-head">
+          <h2 class="settings-card-title" data-i18n="panel.settings">Настройки</h2>
+        </div>
+
+        <div class="settings-content">
+          <div class="settings-section">
+            <div class="settings-label" data-i18n="settings.language.label">Язык интерфейса</div>
+            <div class="settings-hint" data-i18n="settings.language.hint">Переключает подписи вкладок, панелей и меню.</div>
+            <select id="settings-ui-language" class="settings-select">
+              <option value="ru">Русский</option>
+              <option value="en">English</option>
+            </select>
+          </div>
+
+          <div class="settings-section">
+            <div class="settings-label">Подсветка синтаксиса</div>
+            <div class="settings-hint">Выбирает палитру токенов. Фон редактора зависит от общей темы приложения.</div>
+            <select id="settings-syntax-theme" class="settings-select">
+              <option value="classic">Classic</option>
+              <option value="one-dark">One Dark</option>
+              <option value="dracula">Dracula</option>
+              <option value="nord">Nord</option>
+            </select>
+          </div>
+
+          <div class="settings-section">
+            <div class="settings-label">Системный промпт (роль модели)</div>
+            <div class="settings-hint">
+              Кратко задаёт роль и стиль ответов. К нему автоматически добавляются: инструкции по инструментам (CREATEFILE, EDITFILE, READFILE, READDIR, DELETEFILE), контекст проекта и открытый файл.
+            </div>
+            <textarea id="settings-sysprompt" class="settings-textarea" rows="6"
+              placeholder="Ты — экспертный ИИ-ассистент в Sirius IDE. Отвечай на языке пользователя. Будь точным и действуй по инструкциям."></textarea>
+          </div>
+
+          <div class="settings-section settings-section-actions">
+            <button class="btn-primary" id="btn-save-settings">Сохранить</button>
+            <button class="btn-ghost" id="btn-reset-settings">Сбросить</button>
+          </div>
+
+          <div class="settings-section">
+            <div class="settings-label">Подсказка</div>
+            <div class="settings-hint">
+              Инструкции по файловым командам и контекст проекта подставляются автоматически. Здесь задаётся только «личность» модели (например: «Фокус на Python и чистом коде»).
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Security / AI Journal Screen -->
+    <div id="security-screen" class="security-screen" hidden>
+      <div class="security-card">
+        <div class="security-card-head">
+          <h2 class="security-card-title" data-i18n="panel.security">Безопасность / AI Журнал</h2>
+          <div class="security-head-actions">
+            <button class="btn-ghost" id="btn-security-refresh">Refresh</button>
+            <button class="btn-ghost" id="btn-security-clear">Clear</button>
+          </div>
+        </div>
+        <div id="security-journal-body" class="security-journal-body"></div>
+      </div>
+    </div>
+
+    <!-- Help / Documentation Screen -->
+    <div id="help-screen" class="help-screen" hidden>
+      <div class="help-card">
+        <div class="help-card-head">
+          <h2 class="help-card-title" data-i18n="panel.docs">Документация</h2>
+        </div>
+        <div id="help-screen-body" class="help-screen-body"></div>
+      </div>
+    </div>
 
     <!-- Terminal Panel -->
     <div class="term-panel" id="term-panel">
@@ -360,6 +419,7 @@
       <span class="sb-dot" id="sb-dot"></span>
       LM Studio
     </span>
+    <span class="sb-item" id="sb-access" title="Доступ к рабочей папке">RW ?</span>
   </div>
   <div class="sb-right">
     <span class="sb-item" id="sb-lang">Plain Text</span>
@@ -443,14 +503,14 @@
 <div class="modal-backdrop" id="modal-confirm-backdrop" style="display:none">
   <div class="modal" style="min-width:300px">
     <div class="modal-header">
-      <span>Подтверждение</span>
+      <span id="confirm-title">Подтверждение</span>
     </div>
     <div class="modal-body">
       <p id="confirm-msg" style="font-size:13px;line-height:1.6;color:var(--c-text)"></p>
     </div>
     <div class="modal-footer">
       <button class="btn-ghost" id="confirm-cancel">Отмена</button>
-      <button class="btn-primary" id="confirm-ok" style="background:var(--c-danger)">Удалить</button>
+      <button class="btn-primary" id="confirm-ok" style="background:var(--c-danger)">Подтвердить</button>
     </div>
   </div>
 </div>
@@ -462,11 +522,15 @@
 <script src="js/monaco-config.js"></script>
 <script src="../node_modules/monaco-editor/min/vs/loader.js"></script>
 <script src="js/utils.js"></script>
+<script src="js/ux.js"></script>
+<script src="js/store.js"></script>
 <script src="js/state.js"></script>
 <script src="js/editor.js"></script>
+<script src="js/workspaceService.js"></script>
 <script src="js/fileTree.js"></script>
 <script src="js/terminal.js"></script>
 <script src="js/search.js"></script>
+<script src="../node_modules/dompurify/dist/purify.min.js"></script>
 <script src="js/ai.js"></script>
 <script src="js/ui.js"></script>
 <script src="app.js"></script>

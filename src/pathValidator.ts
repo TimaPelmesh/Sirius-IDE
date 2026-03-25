@@ -24,3 +24,8 @@ export function validatePath(filePath: string): void {
     throw new Error(`Доступ запрещён: путь вне открытого проекта (${filePath})`);
   }
 }
+
+// Test helper: keeps production API unchanged while allowing deterministic unit tests.
+export function __resetAllowedRootsForTests(): void {
+  allowedRoots.clear();
+}

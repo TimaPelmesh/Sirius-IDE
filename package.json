@@ -7,9 +7,11 @@
     "build": "tsc",
     "start": "npm run build && electron .",
     "dev": "tsc && electron .",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "pack": "npm run build && electron-packager . Sirius-IDE --platform=win32 --arch=x64 --out=release --overwrite",
     "dist": "npm run build && electron-builder --win nsis portable",
-    "postinstall": "node scripts/patch-node-pty.js && electron-rebuild -f -w node-pty"
+    "postinstall": "node scripts/postinstall.js"
   },
   "keywords": [
     "ide",
@@ -26,7 +28,8 @@
     "electron-builder": "^26.0.12",
     "electron-packager": "^17.1.2",
     "electron-rebuild": "^3.2.9",
-    "typescript": "^5.3.0"
+    "typescript": "^5.3.0",
+    "vitest": "^4.1.1"
   },
   "build": {
     "appId": "com.sirius.ide",
@@ -57,6 +60,7 @@
   },
   "dependencies": {
     "chokidar": "^5.0.0",
+    "dompurify": "^3.3.3",
     "fs-extra": "^11.2.0",
     "monaco-editor": "^0.45.0",
     "node-pty": "^1.0.0",

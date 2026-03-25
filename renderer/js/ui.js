@@ -3,16 +3,199 @@
 
 function setBreadcrumb(filePath) {
   const bar = $('breadcrumb-bar');
-  if (!filePath) { bar.innerHTML = ''; return; }
+  if (!filePath) { bar.textContent = ''; return; }
   const relative = projectRoot
     ? filePath.replace(projectRoot, '').replace(/^[\\/]/, '')
     : filePath;
   const parts = relative.replace(/\\/g, '/').split('/').filter(Boolean);
-  bar.innerHTML = parts.map((p, i) =>
-    i === parts.length - 1
-      ? `<b>${p}</b>`
-      : `<span>${p}</span> <span style="opacity:.4">/</span>`
-  ).join(' ');
+  bar.textContent = '';
+  for (let i = 0; i < parts.length; i++) {
+    const p = parts[i];
+    if (i === parts.length - 1) {
+      const b = document.createElement('b');
+      b.textContent = String(p);
+      bar.append(b);
+    } else {
+      const span = document.createElement('span');
+      span.textContent = String(p);
+      bar.append(span);
+      const sep = document.createElement('span');
+      sep.style.opacity = '.4';
+      sep.textContent = ' / ';
+      bar.append(sep);
+    }
+  }
+}
+
+const I18N = {
+  ru: {
+    'menu.file': 'Файл',
+    'menu.edit': 'Правка',
+    'menu.view': 'Вид',
+    'menu.run': 'Запуск',
+    'menu.window': 'Окно',
+    'tab.files.title': 'Explorer (Ctrl+B)',
+    'tab.search.title': 'Search (Ctrl+F)',
+    'tab.help.title': 'Документация',
+    'tab.settings.title': 'Settings',
+    'tab.security.title': 'Security / AI Journal',
+    'panel.explorer': 'Explorer',
+    'panel.docs': 'Документация',
+    'panel.search': 'Search',
+    'panel.settings': 'Настройки',
+    'panel.security': 'Безопасность / AI Журнал',
+    'settings.language.label': 'Язык интерфейса',
+    'settings.language.hint': 'Переключает подписи вкладок, панелей и меню.',
+    'menuItem.openFolder': 'Открыть папку…',
+    'menuItem.newFile': 'Новый файл',
+    'menuItem.newFolder': 'Новая папка',
+    'menuItem.save': 'Сохранить',
+    'menuItem.saveAll': 'Сохранить всё',
+    'menuItem.closeTab': 'Закрыть вкладку',
+    'menuItem.newWindow': 'Новое окно',
+    'menuItem.undo': 'Отменить',
+    'menuItem.redo': 'Повторить',
+    'menuItem.cut': 'Вырезать',
+    'menuItem.copy': 'Копировать',
+    'menuItem.paste': 'Вставить',
+    'menuItem.find': 'Найти в файле',
+    'menuItem.replace': 'Заменить',
+    'menuItem.explorer': 'Проводник',
+    'menuItem.search': 'Поиск',
+    'menuItem.ai': 'Sirius AI',
+    'menuItem.docs': 'Документация',
+    'menuItem.terminal': 'Терминал',
+    'menuItem.themeDark': 'Тёмная тема',
+    'menuItem.themeLight': 'Светлая тема',
+    'menuItem.runProject': 'Запустить проект',
+    'menuItem.minimize': 'Свернуть',
+    'menuItem.maximize': 'Развернуть',
+    'menuItem.close': 'Закрыть',
+  },
+  en: {
+    'menu.file': 'File',
+    'menu.edit': 'Edit',
+    'menu.view': 'View',
+    'menu.run': 'Run',
+    'menu.window': 'Window',
+    'tab.files.title': 'Explorer (Ctrl+B)',
+    'tab.search.title': 'Search (Ctrl+F)',
+    'tab.help.title': 'Documentation',
+    'tab.settings.title': 'Settings',
+    'tab.security.title': 'Security / AI Journal',
+    'panel.explorer': 'Explorer',
+    'panel.docs': 'Documentation',
+    'panel.search': 'Search',
+    'panel.settings': 'Settings',
+    'panel.security': 'Security / AI Journal',
+    'settings.language.label': 'Interface language',
+    'settings.language.hint': 'Switches tab, panel, and menu labels.',
+    'menuItem.openFolder': 'Open Folder…',
+    'menuItem.newFile': 'New File',
+    'menuItem.newFolder': 'New Folder',
+    'menuItem.save': 'Save',
+    'menuItem.saveAll': 'Save All',
+    'menuItem.closeTab': 'Close Tab',
+    'menuItem.newWindow': 'New Window',
+    'menuItem.undo': 'Undo',
+    'menuItem.redo': 'Redo',
+    'menuItem.cut': 'Cut',
+    'menuItem.copy': 'Copy',
+    'menuItem.paste': 'Paste',
+    'menuItem.find': 'Find in File',
+    'menuItem.replace': 'Replace',
+    'menuItem.explorer': 'Explorer',
+    'menuItem.search': 'Search',
+    'menuItem.ai': 'Sirius AI',
+    'menuItem.docs': 'Documentation',
+    'menuItem.terminal': 'Terminal',
+    'menuItem.themeDark': 'Dark Theme',
+    'menuItem.themeLight': 'Light Theme',
+    'menuItem.runProject': 'Run Project',
+    'menuItem.minimize': 'Minimize',
+    'menuItem.maximize': 'Maximize',
+    'menuItem.close': 'Close',
+  }
+};
+
+function tr(key) {
+  const lang = I18N[currentLang] ? currentLang : 'ru';
+  return I18N[lang][key] || key;
+}
+
+function rebuildMenus() {
+  MENUS = {
+    file: [
+      { label: tr('menuItem.openFolder'),  kbd: 'Ctrl+O', action: 'open-folder' },
+      { label: tr('menuItem.newFile'),     kbd: 'Ctrl+N', action: 'new-file' },
+      { label: tr('menuItem.newFolder'),   kbd: '',       action: 'new-folder' },
+      { sep: true },
+      { label: tr('menuItem.save'),        kbd: 'Ctrl+S', action: 'save' },
+      { label: tr('menuItem.saveAll'),     kbd: 'Ctrl+Shift+S', action: 'save-all' },
+      { sep: true },
+      { label: tr('menuItem.closeTab'),    kbd: 'Ctrl+W', action: 'close-tab' },
+      { sep: true },
+      { label: tr('menuItem.newWindow'),   kbd: 'Ctrl+Shift+N', action: 'new-window' },
+    ],
+    edit: [
+      { label: tr('menuItem.undo'),        kbd: 'Ctrl+Z',  action: 'undo' },
+      { label: tr('menuItem.redo'),        kbd: 'Ctrl+Y',  action: 'redo' },
+      { sep: true },
+      { label: tr('menuItem.cut'),         kbd: 'Ctrl+X',  action: 'cut' },
+      { label: tr('menuItem.copy'),        kbd: 'Ctrl+C',  action: 'copy' },
+      { label: tr('menuItem.paste'),       kbd: 'Ctrl+V',  action: 'paste' },
+      { sep: true },
+      { label: tr('menuItem.find'),        kbd: 'Ctrl+F',  action: 'find' },
+      { label: tr('menuItem.replace'),     kbd: 'Ctrl+H',  action: 'replace' },
+    ],
+    view: [
+      { label: tr('menuItem.explorer'),    kbd: 'Ctrl+B',       action: 'view-files' },
+      { label: tr('menuItem.search'),      kbd: 'Ctrl+Shift+F', action: 'view-search' },
+      { label: tr('menuItem.ai'),          kbd: 'Ctrl+Shift+A', action: 'view-ai' },
+      { label: tr('menuItem.docs'),        kbd: '',             action: 'view-help' },
+      { sep: true },
+      { label: tr('menuItem.terminal'),    kbd: 'Ctrl+`',       action: 'view-terminal' },
+      { sep: true },
+      { label: tr('menuItem.themeDark'),   kbd: '',             action: 'theme-dark' },
+      { label: tr('menuItem.themeLight'),  kbd: '',             action: 'theme-light' },
+    ],
+    run: [
+      { label: tr('menuItem.runProject'),  kbd: 'F5',           action: 'run' },
+      { label: tr('menuItem.terminal'),    kbd: 'Ctrl+`',       action: 'view-terminal' },
+    ],
+    window: [
+      { label: tr('menuItem.newWindow'),   kbd: 'Ctrl+Shift+N', action: 'new-window' },
+      { sep: true },
+      { label: tr('menuItem.minimize'),    kbd: '',             action: 'win-minimize' },
+      { label: tr('menuItem.maximize'),    kbd: '',             action: 'win-maximize' },
+      { sep: true },
+      { label: tr('menuItem.close'),       kbd: 'Alt+F4',       action: 'win-close' },
+    ],
+  };
+}
+
+function applyUILanguage(lang) {
+  if (typeof setCurrentLang === 'function') setCurrentLang((lang === 'en') ? 'en' : 'ru');
+  else currentLang = (lang === 'en') ? 'en' : 'ru';
+  localStorage.setItem('nb_lang', currentLang);
+  document.documentElement.setAttribute('lang', currentLang === 'en' ? 'en' : 'ru');
+
+  document.querySelectorAll('[data-i18n]').forEach((el) => {
+    const key = el.getAttribute('data-i18n');
+    if (!key) return;
+    el.textContent = tr(key);
+  });
+  document.querySelectorAll('[data-i18n-title]').forEach((el) => {
+    const key = el.getAttribute('data-i18n-title');
+    if (!key) return;
+    el.title = tr(key);
+  });
+
+  rebuildMenus();
+  if (_openMenu) {
+    const anchor = document.querySelector(`.mb-item[data-menu="${_openMenu}"]`);
+    if (anchor) openMenuBar(_openMenu, anchor);
+  }
 }
 
 function setStatusItem(id, text) {
@@ -54,6 +237,43 @@ function refreshTabs() {
   const list = $('tab-list');
   if (!list) return;
   list.innerHTML = '';
+  if (activeUtilityTab === 'settings' || activeUtilityTab === 'security') {
+    const utilityTab = document.createElement('div');
+    const isSettings = activeUtilityTab === 'settings';
+    utilityTab.className = 'tab utility-tab active';
+    const name = isSettings ? 'Settings' : 'Security / AI Journal';
+    const nameEl = document.createElement('span');
+    nameEl.className = 'tab-name';
+    nameEl.textContent = name;
+    const dotEl = document.createElement('span');
+    dotEl.className = 'tab-dot';
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'tab-close';
+    closeBtn.title = 'Закрыть';
+    closeBtn.textContent = '✕';
+    utilityTab.append(nameEl, dotEl, closeBtn);
+    utilityTab.addEventListener('click', ev => {
+      if (ev.target.closest('.tab-close')) return;
+      if (isSettings) openSettingsTab();
+      else openSecurityTab();
+    });
+    utilityTab.addEventListener('mousedown', ev => {
+      if (ev.button === 1) ev.preventDefault();
+    });
+    utilityTab.addEventListener('auxclick', ev => {
+      if (ev.button === 1) {
+        ev.preventDefault();
+        if (isSettings) closeSettingsTab();
+        else closeSecurityTab();
+      }
+    });
+    closeBtn.addEventListener('click', ev => {
+      ev.stopPropagation();
+      if (isSettings) closeSettingsTab();
+      else closeSecurityTab();
+    });
+    list.append(utilityTab);
+  }
   const order = openFilesOrder && openFilesOrder.length ? openFilesOrder : Object.keys(openFiles);
   order.forEach((p, index) => {
     const f = openFiles[p];
@@ -64,9 +284,35 @@ function refreshTabs() {
     tab.draggable = true;
     tab.dataset.path = p;
     tab.dataset.index = String(index);
-    tab.innerHTML = `<span class="tab-name">${name}</span><span class="tab-dot"></span><button class="tab-close" title="Закрыть">✕</button>`;
-    tab.addEventListener('click', ev => { if (!ev.target.closest('.tab-close')) openFile(p); });
-    tab.querySelector('.tab-close').addEventListener('click', ev => { ev.stopPropagation(); closeTab(p); });
+    const nameEl = document.createElement('span');
+    nameEl.className = 'tab-name';
+    nameEl.textContent = name;
+    const dotEl = document.createElement('span');
+    dotEl.className = 'tab-dot';
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'tab-close';
+    closeBtn.title = 'Закрыть';
+    closeBtn.textContent = '✕';
+    tab.append(nameEl, dotEl, closeBtn);
+    tab.addEventListener('click', ev => {
+      if (ev.target.closest('.tab-close')) return;
+      if (ev.altKey && typeof window.isEditorSplitEnabled === 'function' && window.isEditorSplitEnabled()) {
+        if (typeof window.setSecondaryEditorFile === 'function' && window.setSecondaryEditorFile(p)) return;
+      }
+      if (isSettingsScreenOpen()) closeSettingsTab();
+      if (isSecurityScreenOpen()) closeSecurityTab();
+      openFile(p);
+    });
+    tab.addEventListener('mousedown', ev => {
+      if (ev.button === 1) ev.preventDefault();
+    });
+    tab.addEventListener('auxclick', ev => {
+      if (ev.button === 1) {
+        ev.preventDefault();
+        closeTab(p);
+      }
+    });
+    closeBtn.addEventListener('click', ev => { ev.stopPropagation(); closeTab(p); });
     tab.addEventListener('dragstart', ev => { ev.dataTransfer.setData('text/plain', String(index)); ev.dataTransfer.effectAllowed = 'move'; tab.classList.add('tab-dragging'); });
     tab.addEventListener('dragend', () => tab.classList.remove('tab-dragging'));
     tab.addEventListener('dragover', ev => { ev.preventDefault(); ev.dataTransfer.dropEffect = 'move'; tab.classList.add('tab-drag-over'); });
@@ -170,11 +416,153 @@ function setupRowResize(handle, panel) {
 
 let leftView = 'files';
 let aiPanelOpen = true;
+let activeUtilityTab = null; // 'settings' | 'security'
+
+function isSettingsScreenOpen() {
+  const el = $('settings-screen');
+  return !!(el && !el.hidden);
+}
+
+function openSettingsScreen() {
+  const el = $('settings-screen');
+  if (!el) return;
+  el.hidden = false;
+}
+
+function closeSettingsScreen() {
+  const el = $('settings-screen');
+  if (!el) return;
+  el.hidden = true;
+}
+
+function openSettingsTab() {
+  activeUtilityTab = 'settings';
+  openSettingsScreen();
+  refreshTabs();
+}
+
+function closeSettingsTab() {
+  closeSettingsScreen();
+  if (activeUtilityTab === 'settings') activeUtilityTab = null;
+  refreshTabs();
+}
+
+function isSecurityScreenOpen() {
+  const el = $('security-screen');
+  return !!(el && !el.hidden);
+}
+
+function openSecurityScreen() {
+  const el = $('security-screen');
+  if (!el) return;
+  el.hidden = false;
+}
+
+function closeSecurityScreen() {
+  const el = $('security-screen');
+  if (!el) return;
+  el.hidden = true;
+}
+
+function renderSecurityJournal() {
+  const body = $('security-journal-body');
+  if (!body) return;
+  let items = [];
+  try {
+    items = (typeof window.getAiOperationJournal === 'function')
+      ? window.getAiOperationJournal()
+      : [];
+  } catch (_) { items = []; }
+  if (!Array.isArray(items) || !items.length) {
+    body.innerHTML = '';
+    const empty = document.createElement('div');
+    empty.className = 'security-journal-empty';
+    empty.textContent = 'Журнал пока пуст.';
+    body.append(empty);
+    return;
+  }
+  body.innerHTML = '';
+  const table = document.createElement('table');
+  table.className = 'security-journal-table';
+  const thead = document.createElement('thead');
+  const headTr = document.createElement('tr');
+  ['Time', 'Cmd', 'Path', 'Status', 'Reason'].forEach((h) => {
+    const th = document.createElement('th');
+    th.textContent = h;
+    headTr.append(th);
+  });
+  thead.append(headTr);
+  const tbody = document.createElement('tbody');
+  items.slice().reverse().forEach((it) => {
+    const tr = document.createElement('tr');
+    const ts = String(it.ts || '').replace('T', ' ').replace('Z', '');
+    const cmd = String(it.cmd || '');
+    const arg = String(it.arg || '');
+    const status = it.ok ? 'OK' : 'BLOCKED/ERR';
+    const reason = String(it.reason || it.error || '');
+    [ts, cmd, arg, status, reason].forEach((v, idx) => {
+      const td = document.createElement('td');
+      td.textContent = v;
+      if (idx === 2 || idx === 4) td.title = v;
+      tr.append(td);
+    });
+    tbody.append(tr);
+  });
+  table.append(thead, tbody);
+  body.append(table);
+}
+
+function openSecurityTab() {
+  activeUtilityTab = 'security';
+  openSecurityScreen();
+  renderSecurityJournal();
+  refreshTabs();
+}
+
+function closeSecurityTab() {
+  closeSecurityScreen();
+  if (activeUtilityTab === 'security') activeUtilityTab = null;
+  refreshTabs();
+}
+
+function isHelpScreenOpen() {
+  const el = $('help-screen');
+  return !!(el && !el.hidden);
+}
+
+function openHelpScreen() {
+  const el = $('help-screen');
+  if (!el) return;
+  el.hidden = false;
+}
+
+function closeHelpScreen() {
+  const el = $('help-screen');
+  if (!el) return;
+  el.hidden = true;
+}
 
 function activateView(view) {
   const sidebar  = $('sidebar');
   const aiPanel  = $('ai-panel');
 
+  if (view !== 'settings') closeSettingsTab();
+  if (view !== 'security') closeSecurityTab();
+  if (view !== 'help') closeHelpScreen();
+
+  if (view === 'settings') {
+    if (isSettingsScreenOpen()) closeSettingsTab();
+    else openSettingsTab();
+  } else if (view === 'security') {
+    if (isSecurityScreenOpen()) closeSecurityTab();
+    else openSecurityTab();
+  } else if (view === 'help') {
+    if (isHelpScreenOpen()) {
+      closeHelpScreen();
+    } else {
+      openHelpScreen();
+    }
+  } else
   if (view === 'files' || view === 'search' || view === 'help' || view === 'settings') {
     if (leftView === view && !sidebar.classList.contains('hidden')) {
       sidebar.classList.add('hidden');
@@ -200,25 +588,39 @@ function activateView(view) {
       b.classList.toggle('active', !aiPanel.classList.contains('hidden'));
     } else if (v === 'terminal') {
       b.classList.toggle('active', $('term-panel').classList.contains('open'));
-    } else if (v === 'settings' || v === 'files' || v === 'search' || v === 'help') {
+    } else if (v === 'settings') {
+      b.classList.toggle('active', isSettingsScreenOpen());
+    } else if (v === 'security') {
+      b.classList.toggle('active', isSecurityScreenOpen());
+    } else if (v === 'help') {
+      b.classList.toggle('active', isHelpScreenOpen());
+    } else if (v === 'files' || v === 'search' || v === 'help') {
       b.classList.toggle('active', v === leftView && !sidebar.classList.contains('hidden'));
     }
   });
 
   if (view === 'settings') {
     const ta = $('settings-sysprompt');
-    if (ta && !ta.value) ta.value = getSystemPrompt();
+    if (isSettingsScreenOpen() && ta && !ta.value) ta.value = getSystemPrompt();
+  } else if (view === 'security') {
+    renderSecurityJournal();
   }
 }
 
 function closeModal(id) { $(id).style.display = 'none'; }
 
-function showConfirm(message) {
+function showConfirm(message, opts) {
+  opts = opts || {};
   return new Promise(resolve => {
+    const titleEl = $('confirm-title');
+    if (titleEl) titleEl.textContent = opts.title || 'Подтверждение';
     $('confirm-msg').textContent = message;
     $('modal-confirm-backdrop').style.display = 'flex';
     const ok = $('confirm-ok');
     const cancel = $('confirm-cancel');
+    ok.textContent = opts.okText || 'Подтвердить';
+    cancel.textContent = opts.cancelText || 'Отмена';
+    ok.style.background = opts.danger ? 'var(--c-danger)' : 'var(--c-accent)';
     const cleanup = () => { $('modal-confirm-backdrop').style.display = 'none'; };
     ok.onclick = () => { cleanup(); resolve(true); };
     cancel.onclick = () => { cleanup(); resolve(false); };
@@ -227,7 +629,47 @@ function showConfirm(message) {
 
 function initShortcuts() {
   document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && isHelpScreenOpen()) {
+      e.preventDefault();
+      closeHelpScreen();
+      document.querySelectorAll('.ab-btn').forEach(b => {
+        if (b.dataset.view === 'help') b.classList.remove('active');
+      });
+      return;
+    }
+    if (e.key === 'Escape' && isSettingsScreenOpen()) {
+      e.preventDefault();
+      closeSettingsTab();
+      document.querySelectorAll('.ab-btn').forEach(b => {
+        if (b.dataset.view === 'settings') b.classList.remove('active');
+      });
+      return;
+    }
+    if (e.key === 'Escape' && isSecurityScreenOpen()) {
+      e.preventDefault();
+      closeSecurityTab();
+      document.querySelectorAll('.ab-btn').forEach(b => {
+        if (b.dataset.view === 'security') b.classList.remove('active');
+      });
+      return;
+    }
     const ctrl = e.ctrlKey || e.metaKey;
+    // Zoom hotkeys: support main keyboard, shifted '+', and numpad.
+    if (ctrl && (e.code === 'Equal' || e.code === 'NumpadAdd' || e.key === '+')) {
+      e.preventDefault();
+      window.api.zoomIn?.();
+      return;
+    }
+    if (ctrl && (e.code === 'Minus' || e.code === 'NumpadSubtract' || e.key === '-')) {
+      e.preventDefault();
+      window.api.zoomOut?.();
+      return;
+    }
+    if (ctrl && (e.code === 'Digit0' || e.code === 'Numpad0' || e.key === '0')) {
+      e.preventDefault();
+      window.api.zoomReset?.();
+      return;
+    }
     const inTree = e.target.closest('#file-tree') || e.target.closest('#sidebar');
     const renameInlineOpen = !!document.querySelector('.tree-inline-rename');
     if (inTree && projectRoot && e.key === 'F2' && !renameInlineOpen && !e.target.closest('input, textarea')) {
@@ -280,6 +722,10 @@ function initShortcuts() {
       e.preventDefault();
       if (editor) { editor.focus(); editor.getAction('editor.action.startFindReplaceAction').run(); }
     }
+    if (e.altKey && e.key === '\\') {
+      e.preventDefault();
+      if (typeof window.toggleEditorSplit === 'function') window.toggleEditorSplit();
+    }
     if (ctrl && e.key.toLowerCase() === 'r') {
       e.preventDefault();
       saveState();
@@ -289,54 +735,8 @@ function initShortcuts() {
   });
 }
 
-const MENUS = {
-  file: [
-    { label: 'Открыть папку…',  kbd: 'Ctrl+O', action: 'open-folder' },
-    { label: 'Новый файл',       kbd: 'Ctrl+N', action: 'new-file' },
-    { label: 'Новая папка',      kbd: '',       action: 'new-folder' },
-    { sep: true },
-    { label: 'Сохранить',        kbd: 'Ctrl+S', action: 'save' },
-    { label: 'Сохранить всё',    kbd: 'Ctrl+Shift+S', action: 'save-all' },
-    { sep: true },
-    { label: 'Закрыть вкладку',  kbd: 'Ctrl+W', action: 'close-tab' },
-    { sep: true },
-    { label: 'Новое окно',       kbd: 'Ctrl+Shift+N', action: 'new-window' },
-  ],
-  edit: [
-    { label: 'Отменить',         kbd: 'Ctrl+Z',  action: 'undo' },
-    { label: 'Повторить',        kbd: 'Ctrl+Y',  action: 'redo' },
-    { sep: true },
-    { label: 'Вырезать',         kbd: 'Ctrl+X',  action: 'cut' },
-    { label: 'Копировать',       kbd: 'Ctrl+C',  action: 'copy' },
-    { label: 'Вставить',         kbd: 'Ctrl+V',  action: 'paste' },
-    { sep: true },
-    { label: 'Найти в файле',    kbd: 'Ctrl+F',  action: 'find' },
-    { label: 'Заменить',         kbd: 'Ctrl+H',  action: 'replace' },
-  ],
-  view: [
-    { label: 'Проводник',        kbd: 'Ctrl+B',       action: 'view-files' },
-    { label: 'Поиск',            kbd: 'Ctrl+Shift+F', action: 'view-search' },
-    { label: 'Sirius AI',        kbd: 'Ctrl+Shift+A', action: 'view-ai' },
-    { label: 'Документация',     kbd: '',             action: 'view-help' },
-    { sep: true },
-    { label: 'Терминал',         kbd: 'Ctrl+`',       action: 'view-terminal' },
-    { sep: true },
-    { label: 'Тёмная тема',      kbd: '',             action: 'theme-dark' },
-    { label: 'Светлая тема',     kbd: '',             action: 'theme-light' },
-  ],
-  run: [
-    { label: 'Запустить проект', kbd: 'F5',           action: 'run' },
-    { label: 'Открыть терминал', kbd: 'Ctrl+`',       action: 'view-terminal' },
-  ],
-  window: [
-    { label: 'Новое окно',       kbd: 'Ctrl+Shift+N', action: 'new-window' },
-    { sep: true },
-    { label: 'Свернуть',         kbd: '',             action: 'win-minimize' },
-    { label: 'Развернуть',       kbd: '',             action: 'win-maximize' },
-    { sep: true },
-    { label: 'Закрыть',          kbd: 'Alt+F4',       action: 'win-close' },
-  ],
-};
+let MENUS = {};
+rebuildMenus();
 
 let _openMenu = null;
 
@@ -429,7 +829,15 @@ async function saveAllFiles() {
     try {
       await window.api.writeFile(p, content);
       if (openFiles[p]) { openFiles[p].content = content; openFiles[p].modified = false; }
-    } catch (e) { toast('Ошибка сохранения ' + p.split(/[\\/]/).pop() + ': ' + e.message, 'error'); }
+    } catch (e) {
+      const msg = String(e?.message || e || '').toLowerCase();
+      if (msg.includes('eperm') || msg.includes('eacces') || msg.includes('нет прав')) {
+        toast('Часть файлов не сохранена: у папки ограничен доступ.', 'error', 4500);
+        if (typeof handleWritePermissionError === 'function') handleWritePermissionError(e, p, 'Часть файлов не сохранена: у папки ограничен доступ.');
+      } else {
+        toast('Ошибка сохранения ' + p.split(/[\\/]/).pop() + ': ' + e.message, 'error');
+      }
+    }
   }
   refreshTabs();
   if (paths.length) toast(`Сохранено файлов: ${paths.length}`, 'success', 2000);

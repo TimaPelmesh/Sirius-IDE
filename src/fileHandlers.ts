@@ -3,6 +3,33 @@ import * as path from 'path';
 import type { Dirent } from 'fs';
 import { validatePath } from './pathValidator';
 
+const MAX_TEXT_FILE_BYTES = 8 * 1024 * 1024; // 8 MB safety cap for renderer text operations
+
+function assertSafePathInput(filePath: unknown): asserts filePath is string {
+  if (typeof filePath !== 'string' || filePath.trim() === '') {
+    throw new Error('Некорректный путь файла');
+  }
+  if (filePath.includes('\u0000')) {
+    throw new Error('Некорректный путь файла: содержит запрещённый символ');
+  }
+}
+
+function assertSafeTextPayload(content: unknown): asserts content is string {
+  if (typeof content !== 'string') {
+    throw new Error('Некорректное содержимое файла');
+  }
+  if (Buffer.byteLength(content, 'utf8') > MAX_TEXT_FILE_BYTES) {
+    throw new Error(`Файл слишком большой для текстовой операции (>${MAX_TEXT_FILE_BYTES} байт)`);
+  }
+}
+
+async function assertReadableTextSize(filePath: string): Promise<void> {
+  const stat = await fs.stat(filePath);
+  if (stat.size > MAX_TEXT_FILE_BYTES) {
+    throw new Error(`Файл слишком большой для текстового чтения (>${MAX_TEXT_FILE_BYTES} байт)`);
+  }
+}
+
 async function safeWrite(filePath: string, content: string): Promise<void> {
   const dir = path.dirname(filePath);
 
@@ -50,13 +77,17 @@ async function safeWrite(filePath: string, content: string): Promise<void> {
 
 export const fileHandlers = {
   'read-file': async (_: unknown, filePath: string) => {
+    assertSafePathInput(filePath);
     validatePath(filePath);
+    await assertReadableTextSize(filePath);
     return fs.readFile(filePath, 'utf-8');
   },
 
   'read-file-safe': async (_: unknown, filePath: string): Promise<{ content: string; error: string | null }> => {
+    assertSafePathInput(filePath);
     validatePath(filePath);
     try {
+      await assertReadableTextSize(filePath);
       const content = await fs.readFile(filePath, 'utf-8');
       return { content: typeof content === 'string' ? content : String(content), error: null };
     } catch (e) {
@@ -66,11 +97,14 @@ export const fileHandlers = {
   },
 
   'write-file': async (_: unknown, filePath: string, content: string) => {
+    assertSafePathInput(filePath);
+    assertSafeTextPayload(content);
     validatePath(filePath);
     await safeWrite(filePath, content);
   },
 
   'read-dir': async (_: unknown, dirPath: string) => {
+    assertSafePathInput(dirPath);
     validatePath(dirPath);
     const entries = await fs.readdir(dirPath, { withFileTypes: true });
     return entries.map((e: Dirent) => ({
@@ -81,16 +115,19 @@ export const fileHandlers = {
   },
 
   'exists': async (_: unknown, filePath: string) => {
+    assertSafePathInput(filePath);
     validatePath(filePath);
     return fs.pathExists(filePath);
   },
 
   'mkdir': async (_: unknown, dirPath: string) => {
+    assertSafePathInput(dirPath);
     validatePath(dirPath);
     return fs.ensureDir(dirPath);
   },
 
   'stat': async (_: unknown, filePath: string) => {
+    assertSafePathInput(filePath);
     validatePath(filePath);
     const s = await fs.stat(filePath);
     // stat result is not serializable as-is; return plain object
@@ -104,17 +141,22 @@ export const fileHandlers = {
   },
 
   'rename': async (_: unknown, oldPath: string, newPath: string) => {
+    assertSafePathInput(oldPath);
+    assertSafePathInput(newPath);
     validatePath(oldPath);
     validatePath(newPath);
     return fs.move(oldPath, newPath, { overwrite: false });
   },
 
   'delete': async (_: unknown, filePath: string) => {
+    assertSafePathInput(filePath);
     validatePath(filePath);
     return fs.remove(filePath);
   },
 
   'copy-path': async (_: unknown, srcPath: string, destPath: string) => {
+    assertSafePathInput(srcPath);
+    assertSafePathInput(destPath);
     validatePath(srcPath);
     validatePath(destPath);
     await fs.copy(srcPath, destPath, { overwrite: false, errorOnExist: true });

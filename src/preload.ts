@@ -72,6 +72,9 @@ contextBridge.exposeInMainWorld('api', {
   // ── Window ─────────────────────────────────────────────────
   openDevTools:   () => ipcRenderer.send('open-devtools'),
   newWindow:      () => ipcRenderer.invoke('new-window'),
+  zoomIn:         () => ipcRenderer.send('zoom-in'),
+  zoomOut:        () => ipcRenderer.send('zoom-out'),
+  zoomReset:      () => ipcRenderer.send('zoom-reset'),
   winMinimize:    () => ipcRenderer.send('win-minimize'),
   winMaximize:    () => ipcRenderer.send('win-maximize'),
   winClose:       () => ipcRenderer.send('win-close'),

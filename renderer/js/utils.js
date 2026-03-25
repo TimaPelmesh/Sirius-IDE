@@ -3,15 +3,29 @@
 
 function uid() { return Math.random().toString(36).slice(2, 10); }
 
+function escapeHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 function toast(msg, type = 'info', ms = 3000, action = null) {
   const t = document.createElement('div');
   t.className = `toast ${type}`;
   if (action) {
-    t.innerHTML = `<span>${msg}</span><button class="toast-action">${action.label}</button>`;
-    t.querySelector('.toast-action').addEventListener('click', () => { t.remove(); action.fn(); });
+    const textEl = document.createElement('span');
+    textEl.textContent = String(msg || '');
+    const btn = document.createElement('button');
+    btn.className = 'toast-action';
+    btn.textContent = String(action.label || '');
+    btn.addEventListener('click', () => { t.remove(); action.fn(); });
+    t.append(textEl, btn);
     ms = ms || 0;
   } else {
-    t.textContent = msg;
+    t.textContent = String(msg || '');
   }
   document.getElementById('toasts').append(t);
   if (ms > 0) setTimeout(() => { if (t.isConnected) t.remove(); }, ms);
@@ -52,6 +66,7 @@ const EXT_LANG = {
   cpp:'cpp', cc:'cpp', cxx:'cpp', c:'c', h:'cpp', hpp:'cpp',
   rb:'ruby', php:'php', pl:'perl', lua:'lua', r:'r', swift:'swift',
   html:'html', htm:'html', css:'css', scss:'scss', sass:'scss', less:'less',
+  csv:'csv', tsv:'csv',
   json:'json', jsonc:'json', yaml:'yaml', yml:'yaml',
   md:'markdown', mdx:'markdown', sh:'shell', bash:'shell', zsh:'shell',
   ps1:'powershell', bat:'bat', cmd:'bat',
@@ -107,6 +122,9 @@ const FILE_ICON_INFO = {
   ini:  { bg:'#3d5a80', fg:'#fff',    label:'INI'  },
   env:  { bg:'#3d5a80', fg:'#98c379', label:'ENV'  },
   svg:  { bg:'#ff9900', fg:'#fff',    label:'SVG'  },
+  csv:  { bg:'#2f7d32', fg:'#fff',    label:'CSV'  },
+  tsv:  { bg:'#2f7d32', fg:'#fff',    label:'TSV'  },
+  parquet:{ bg:'#3b2e7e', fg:'#fff',  label:'PQT'  },
   dockerfile:{ bg:'#2496ed', fg:'#fff', label:'DKR' },
   makefile:{ bg:'#2d2d2d', fg:'#f8f8f2', label:'MK'  },
   mk:   { bg:'#2d2d2d', fg:'#f8f8f2', label:'MK'   },

@@ -118,6 +118,19 @@ ipcMain.on('win-maximize', () => {
   if (mainWindow?.isMaximized()) mainWindow.unmaximize();
   else mainWindow?.maximize();
 });
+ipcMain.on('zoom-in', () => {
+  if (!mainWindow) return;
+  const wc = mainWindow.webContents;
+  wc.setZoomLevel(wc.getZoomLevel() + 0.5);
+});
+ipcMain.on('zoom-out', () => {
+  if (!mainWindow) return;
+  const wc = mainWindow.webContents;
+  wc.setZoomLevel(wc.getZoomLevel() - 0.5);
+});
+ipcMain.on('zoom-reset', () => {
+  mainWindow?.webContents.setZoomLevel(0);
+});
 ipcMain.on('win-close', () => mainWindow?.close());
 ipcMain.on('open-devtools', () => mainWindow?.webContents.openDevTools());
 ipcMain.handle('win-is-maximized', () => mainWindow?.isMaximized() || false);

@@ -37,6 +37,10 @@ window.addEventListener('DOMContentLoaded', async () => {
   });
 
   $('btn-new-term').onclick = createTerminalTab;
+  const btnSplitEditor = $('btn-split-editor');
+  if (btnSplitEditor) btnSplitEditor.onclick = () => window.toggleEditorSplit?.();
+  const btnSplitTerm = $('btn-split-term');
+  if (btnSplitTerm) btnSplitTerm.onclick = () => window.toggleTerminalSplit?.();
   $('btn-clear-term').onclick = () => {
     const inst = termInstances.get(activeTermId);
     if (inst) inst.xterm.clear();
@@ -84,21 +88,80 @@ window.addEventListener('DOMContentLoaded', async () => {
   $('btn-save-settings').onclick = () => {
     const val = $('settings-sysprompt').value.trim();
     localStorage.setItem('nb_sysprompt', val || DEFAULT_SYSPROMPT);
-    const themeId = $('settings-editor-theme')?.value;
-    if (themeId && typeof applyEditorTheme === 'function') applyEditorTheme(themeId);
+    const lang = $('settings-ui-language')?.value || 'ru';
+    if (typeof applyUILanguage === 'function') applyUILanguage(lang);
+    const syntaxTheme = $('settings-syntax-theme')?.value || 'classic';
+    if (typeof applyEditorTheme === 'function') applyEditorTheme(syntaxTheme);
     toast('Настройки сохранены', 'success', 2000);
   };
   $('btn-reset-settings').onclick = () => {
     localStorage.removeItem('nb_sysprompt');
     $('settings-sysprompt').value = DEFAULT_SYSPROMPT;
-    if (typeof applyEditorTheme === 'function') applyEditorTheme('vs-dark');
-    var sel = $('settings-editor-theme');
-    if (sel) sel.value = 'vs-dark';
-    toast('Системный промт и тема редактора сброшены', 'info', 2000);
+    localStorage.removeItem('nb_lang');
+    localStorage.removeItem('nb_editor_theme');
+    var langSel = $('settings-ui-language');
+    if (langSel) langSel.value = 'ru';
+    var syntaxSel = $('settings-syntax-theme');
+    if (syntaxSel) syntaxSel.value = 'classic';
+    if (typeof applyEditorTheme === 'function') applyEditorTheme('classic');
+    if (typeof applyUILanguage === 'function') applyUILanguage('ru');
+    toast('Настройки сброшены', 'info', 2000);
   };
   $('settings-sysprompt').value = getSystemPrompt();
-  var themeSel = $('settings-editor-theme');
-  if (themeSel && typeof getEditorThemeId === 'function') themeSel.value = getEditorThemeId();
+  var langSel = $('settings-ui-language');
+  if (langSel) langSel.value = (typeof currentLang === 'string' ? currentLang : 'ru');
+  var syntaxSel = $('settings-syntax-theme');
+  if (syntaxSel && typeof getEditorThemeId === 'function') syntaxSel.value = getEditorThemeId();
+  if (typeof applyUILanguage === 'function') applyUILanguage(typeof currentLang === 'string' ? currentLang : 'ru');
+
+  const settingsScreen = $('settings-screen');
+  const closeSettingsBtn = $('btn-close-settings');
+  if (closeSettingsBtn) closeSettingsBtn.onclick = () => activateView('settings');
+  if (settingsScreen) {
+    settingsScreen.addEventListener('click', (e) => {
+      // Click outside the card closes the settings screen.
+      if (e.target === settingsScreen) activateView('settings');
+    });
+  }
+
+  const securityScreen = $('security-screen');
+  const closeSecurityBtn = $('btn-close-security');
+  const refreshSecurityBtn = $('btn-security-refresh');
+  const clearSecurityBtn = $('btn-security-clear');
+  if (closeSecurityBtn) closeSecurityBtn.onclick = () => activateView('security');
+  if (refreshSecurityBtn) refreshSecurityBtn.onclick = () => {
+    if (typeof renderSecurityJournal === 'function') renderSecurityJournal();
+  };
+  if (clearSecurityBtn) clearSecurityBtn.onclick = async () => {
+    var ok = true;
+    if (typeof showConfirm === 'function') {
+      ok = await showConfirm('Очистить журнал AI-операций?', { title: 'Security', okText: 'Очистить', cancelText: 'Отмена', danger: true });
+    }
+    if (!ok) return;
+    if (typeof window.clearAiOperationJournal === 'function') window.clearAiOperationJournal();
+    if (typeof renderSecurityJournal === 'function') renderSecurityJournal();
+    toast('AI журнал очищен', 'info', 1800);
+  };
+  if (securityScreen) {
+    securityScreen.addEventListener('click', (e) => {
+      if (e.target === securityScreen) activateView('security');
+    });
+  }
+
+  // Move existing help content into centered help screen (single source of truth).
+  const helpScreenBody = $('help-screen-body');
+  const helpPanelContent = document.querySelector('#view-help .help-content');
+  if (helpScreenBody && helpPanelContent) helpScreenBody.appendChild(helpPanelContent);
+  const helpPanel = $('view-help');
+  if (helpPanel) helpPanel.style.display = 'none';
+  const helpScreen = $('help-screen');
+  const closeHelpBtn = $('btn-close-help');
+  if (closeHelpBtn) closeHelpBtn.onclick = () => activateView('help');
+  if (helpScreen) {
+    helpScreen.addEventListener('click', (e) => {
+      if (e.target === helpScreen) activateView('help');
+    });
+  }
 
   var btnRun = $('btn-run');
   if (btnRun) btnRun.onclick = runProject;

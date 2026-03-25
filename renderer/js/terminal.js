@@ -4,6 +4,10 @@
 const termInstances = new Map();
 let activeTermId = null;
 let termCounter = 0;
+let splitTermEnabled = (function () {
+  try { return localStorage.getItem('nb_term_split') === '1'; } catch (_) { return false; }
+})();
+let secondaryTermId = null;
 
 function isLightTheme() {
   return document.documentElement.getAttribute('data-theme') === 'light';
@@ -50,9 +54,41 @@ function toggleTerminal() {
     else {
       const inst = termInstances.get(activeTermId);
       inst?.fitAddon?.fit();
+      if (splitTermEnabled && secondaryTermId) termInstances.get(secondaryTermId)?.fitAddon?.fit();
       inst?.xterm?.focus();
     }
   }
+}
+
+function chooseSecondaryTerm() {
+  if (!splitTermEnabled) {
+    secondaryTermId = null;
+    return;
+  }
+  const ids = [...termInstances.keys()].filter(id => id !== activeTermId);
+  secondaryTermId = ids.length ? ids[0] : null;
+}
+
+function applyTerminalSplitState() {
+  const panel = $('term-panel');
+  const btn = $('btn-split-term');
+  if (panel) panel.classList.toggle('split-enabled', splitTermEnabled && !!secondaryTermId);
+  if (btn) btn.classList.toggle('active', splitTermEnabled);
+  for (const [id, inst] of termInstances) {
+    inst.el.classList.toggle('active', id === activeTermId);
+    inst.el.classList.toggle('active-secondary', splitTermEnabled && !!secondaryTermId && id === secondaryTermId);
+  }
+  setTimeout(() => {
+    termInstances.get(activeTermId)?.fitAddon?.fit();
+    if (splitTermEnabled && secondaryTermId) termInstances.get(secondaryTermId)?.fitAddon?.fit();
+  }, 10);
+}
+
+function toggleTerminalSplit() {
+  splitTermEnabled = !splitTermEnabled;
+  try { localStorage.setItem('nb_term_split', splitTermEnabled ? '1' : '0'); } catch (_) {}
+  chooseSecondaryTerm();
+  applyTerminalSplitState();
 }
 
 async function createTerminalTab() {
@@ -109,16 +145,11 @@ async function createTerminalTab() {
 }
 
 function switchTerminalTab(id) {
-  for (const [tid, inst] of termInstances) {
-    inst.el.classList.toggle('active', tid === id);
-  }
   activeTermId = id;
+  if (splitTermEnabled && secondaryTermId === activeTermId) chooseSecondaryTerm();
   renderTermTabs();
-  setTimeout(() => {
-    const inst = termInstances.get(id);
-    inst?.fitAddon?.fit();
-    inst?.xterm?.focus();
-  }, 30);
+  applyTerminalSplitState();
+  setTimeout(() => termInstances.get(id)?.xterm?.focus(), 30);
 }
 
 function closeTerminalTab(id) {
@@ -129,12 +160,15 @@ function closeTerminalTab(id) {
   inst.xterm.dispose();
   inst.el.remove();
   termInstances.delete(id);
+  if (secondaryTermId === id) secondaryTermId = null;
   if (activeTermId === id) {
     const remaining = [...termInstances.keys()];
     if (remaining.length) switchTerminalTab(remaining[remaining.length - 1]);
     else { activeTermId = null; $('term-panel').classList.remove('open'); }
   }
+  chooseSecondaryTerm();
   renderTermTabs();
+  applyTerminalSplitState();
 }
 
 function renderTermTabs() {
@@ -145,6 +179,15 @@ function renderTermTabs() {
     tab.className = 'term-tab' + (id === activeTermId ? ' active' : '');
     tab.innerHTML = `<span>${inst.name}</span><button class="term-tab-close">✕</button>`;
     tab.addEventListener('click', ev => { if (!ev.target.closest('.term-tab-close')) switchTerminalTab(id); });
+    tab.addEventListener('mousedown', ev => {
+      if (ev.button === 1) ev.preventDefault();
+    });
+    tab.addEventListener('auxclick', ev => {
+      if (ev.button === 1) {
+        ev.preventDefault();
+        closeTerminalTab(id);
+      }
+    });
     tab.querySelector('.term-tab-close').addEventListener('click', ev => { ev.stopPropagation(); closeTerminalTab(id); });
     tabs.append(tab);
   }
@@ -158,3 +201,4 @@ function applyTerminalTheme() {
 }
 
 if (typeof window !== 'undefined') window.applyTerminalTheme = applyTerminalTheme;
+if (typeof window !== 'undefined') window.toggleTerminalSplit = toggleTerminalSplit;

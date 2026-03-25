@@ -30,8 +30,25 @@ function setupSearch() {
       }
       const item = document.createElement('div');
       item.className = 'search-result-item';
-      const hi = m.line.replace(new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'), 'gi'), s => `<span class="search-match">${s}</span>`);
-      item.innerHTML = `<span style="color:var(--c-text-dim);margin-right:6px">${m.lineNo}</span>${hi}`;
+      const lineNo = document.createElement('span');
+      lineNo.style.color = 'var(--c-text-dim)';
+      lineNo.style.marginRight = '6px';
+      lineNo.textContent = String(m.lineNo);
+      item.appendChild(lineNo);
+      const text = String(m.line || '');
+      const re = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'), 'gi');
+      let last = 0;
+      let match;
+      while ((match = re.exec(text)) !== null) {
+        if (match.index > last) item.append(document.createTextNode(text.slice(last, match.index)));
+        const mark = document.createElement('span');
+        mark.className = 'search-match';
+        mark.textContent = match[0];
+        item.append(mark);
+        last = match.index + match[0].length;
+        if (match[0].length === 0) re.lastIndex++;
+      }
+      if (last < text.length) item.append(document.createTextNode(text.slice(last)));
       item.addEventListener('click', async () => {
         await openFile(m.file);
         highlightSearchResult(m, q);

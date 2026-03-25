@@ -103,16 +103,16 @@ async function updateGitStatus() {
     if (status && status.branch) {
       const dirty = (status.modified || 0) + (status.staged || 0);
       const txt = status.branch + (dirty ? ` ●${dirty}` : '');
-      el.innerHTML = `${gitIcon} ${txt}`;
+      el.innerHTML = `${gitIcon} ${escapeHtml(txt)}`;
       el.title = `Ветка: ${status.branch} | Изменено: ${status.modified} | В индексе: ${status.staged}`;
     } else {
-      el.innerHTML = `${gitIcon} ${folderName}`;
+      el.innerHTML = `${gitIcon} ${escapeHtml(folderName)}`;
       el.title = projectRoot;
     }
   } catch (_) {
     _gitErrorCount++;
     const el = $('sb-branch');
-    if (el) el.innerHTML = `${gitIcon} ${folderName}`;
+    if (el) el.innerHTML = `${gitIcon} ${escapeHtml(folderName)}`;
   }
 }
 
@@ -134,7 +134,8 @@ async function doMove(srcPath, destPath) {
   }
   await window.api.rename(srcPath, destPath);
   if (wasActiveAffected) {
-    activeFile = null;
+    if (typeof setActiveFile === 'function') setActiveFile(null);
+    else activeFile = null;
     await openFile(newActivePath);
   }
   if (!_isUndoingExplorer) pushExplorerUndo({ type: 'move', from: srcPath, to: destPath });
@@ -299,7 +300,7 @@ async function deleteSelectionOrActive() {
   const msg = paths.length > 1
     ? `Удалить выбранные элементы (${paths.length})? Это действие необратимо.`
     : `Удалить "${paths[0].replace(/^.*[\\/]/, '')}"? Это действие необратимо.`;
-  const ok = await showConfirm(msg);
+  const ok = await showConfirm(msg, { title: 'Удаление', okText: 'Удалить', cancelText: 'Отмена', danger: true });
   if (!ok) return;
   const toClose = Object.keys(openFiles || {}).filter(openPath =>
     paths.some(delPath => isUnder(openPath, delPath))
@@ -347,11 +348,11 @@ async function deleteSelectionOrActive() {
     for (const p of sorted) await window.api.delete(p);
     selectedTreePaths.clear();
     if (!_isUndoingExplorer) pushExplorerUndo({ type: 'delete', snapshots });
-    toast(paths.length > 1 ? `Удалено: ${paths.length} элементов` : 'Удалено', 'success');
+    UX.success(paths.length > 1 ? `Удалено: ${paths.length} элементов` : 'Удалено');
     await refreshTree();
     refreshTabs();
   } catch (e) {
-    toast('Ошибка удаления: ' + e.message, 'error');
+    UX.error('Ошибка удаления: ' + e.message);
   }
 }
 
@@ -373,7 +374,7 @@ async function getUniqueDestPath(targetDir, baseName) {
 }
 
 async function clipboardPaste(targetDir) {
-  if (!_clipboard) { toast('Буфер обмена пуст', 'info'); return; }
+  if (!_clipboard) { UX.info('Буфер обмена пуст'); return; }
   const clip = _clipboard;
   const items = clip.items || [{ path: clip.path, isDir: clip.isDir, name: clip.name }];
   const sep = projectRoot && projectRoot.indexOf('/') !== -1 ? '/' : '\\';
@@ -393,7 +394,7 @@ async function clipboardPaste(targetDir) {
         createdPaths.push(newPath);
       }
       if (!_isUndoingExplorer && createdPaths.length) pushExplorerUndo({ type: 'create-many', paths: createdPaths });
-      toast(items.length > 1 ? `Вставлено копий: ${items.length}` : `Вставлено (копия): ${items[0].name}`, 'success');
+      UX.success(items.length > 1 ? `Вставлено копий: ${items.length}` : `Вставлено (копия): ${items[0].name}`);
     } else {
       document.querySelectorAll('.tree-item.clipboard-cut')
         .forEach(el => el.classList.remove('clipboard-cut'));
@@ -405,13 +406,13 @@ async function clipboardPaste(targetDir) {
         }
       }
       if (!_isUndoingExplorer && movedPairs.length) pushExplorerUndo({ type: 'move-many', items: movedPairs });
-      toast(items.length > 1 ? `Перемещено: ${items.length}` : `Вставлено (перемещение): ${items[0].name}`, 'success');
+      UX.success(items.length > 1 ? `Перемещено: ${items.length}` : `Вставлено (перемещение): ${items[0].name}`);
       _clipboard = null;
     }
     await refreshTree();
     refreshTabs();
   } catch (err) {
-    toast(`Ошибка вставки: ${err.message}`, 'error');
+    UX.error(`Ошибка вставки: ${err.message}`);
   }
 }
 
@@ -448,7 +449,7 @@ async function refreshTree(dir, container, depth) {
     if (e.isDirectory) {
       const isOpen = expandedDirs.has(e.path);
       const chv = `<svg class="tree-chv${isOpen?' open':''}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="5 2 11 8 5 14"/></svg>`;
-      item.innerHTML = `${chv}${getFileIcon(e.name, true)}<span class="name">${e.name}</span>`;
+      item.innerHTML = `${chv}${getFileIcon(e.name, true)}<span class="name">${escapeHtml(e.name)}</span>`;
       const children = document.createElement('div');
       children.className = 'tree-children';
       children.style.display = isOpen ? 'block' : 'none';
@@ -466,7 +467,7 @@ async function refreshTree(dir, container, depth) {
         item.querySelector('.tree-chv').classList.toggle('open', !wasOpen);
       });
     } else {
-      item.innerHTML = `${getFileIcon(e.name, false)}<span class="name">${e.name}</span>`;
+      item.innerHTML = `${getFileIcon(e.name, false)}<span class="name">${escapeHtml(e.name)}</span>`;
       item.addEventListener('click', function (ev) {
         ev.stopPropagation();
         if (ev.ctrlKey || ev.metaKey) {
@@ -495,64 +496,22 @@ function refreshTreeSelection() {
   });
 }
 
-async function checkFolderWritable(folder) {
-  const testPath = folder.replace(/[\\/]$/, '') + '\\.sirius_write_test';
-  try {
-    await window.api.writeFile(testPath, 'ok');
-    await window.api.delete(testPath);
-    return true;
-  } catch (_) {
-    return false;
-  }
-}
-
 async function openFolder() {
-  const result = await window.api.openFolderDialog();
-  if (!result || !result.filePaths || !result.filePaths[0]) return;
-  const folder = result.filePaths[0];
-  const writable = await checkFolderWritable(folder);
-  if (!writable) {
-    toast(
-      `Папка "${folder.split(/[\\/]/).pop()}" открыта только для чтения — файлы не сохранятся.`,
-      'error', 0,
-      {
-        label: '⚡ Исправить права (UAC)',
-        fn: async () => {
-          const t2 = toast('Запрашиваем права администратора…', 'info', 0);
-          const ok = await window.api.fixFolderPermissions?.(folder);
-          t2.remove();
-          if (ok) {
-            const ok2 = await checkFolderWritable(folder);
-            toast(
-              ok2 ? '✓ Права исправлены! Теперь можно создавать файлы.' : 'UAC выполнен, но проверьте права вручную.',
-              ok2 ? 'success' : 'info', 5000
-            );
-          } else {
-            toast(
-              `Не удалось запустить UAC. Вручную: ПКМ на папку → Свойства → Безопасность → Изменить → Полный доступ`,
-              'error', 10000
-            );
-          }
-        }
-      }
-    );
-  }
-  projectRoot = folder;
-  openFiles = {};
-  activeFile = null;
-  selectedTreePaths.clear();
-  if (editor) editor.setValue('');
-  await loadProject(true);
-  saveState();
-  detectRunCommand();
+  await openFolderFlow();
 }
 
 async function openFile(filePath) {
   if (!filePath) return;
   hideWelcome();
+  function isNotFoundReadError(errText) {
+    var s = String(errText || '').toLowerCase();
+    return s.includes('enoent') || s.includes('no such file or directory') || s.includes('файл не найден');
+  }
+  const ext = extOf(filePath);
+  const isParquet = ext === 'parquet';
   const wasModified = openFiles[filePath]?.modified;
   let readError = null;
-  if (!wasModified) {
+  if (!wasModified && !isParquet) {
     const cachedContent = openFiles[filePath]?.content ?? '';
     let content = cachedContent;
     if (window.api?.readFileSafe) {
@@ -565,12 +524,47 @@ async function openFile(filePath) {
         if (diskContent != null) content = diskContent;
       } catch (e) { readError = e?.message || 'Unknown error'; }
     }
+    if (readError && isNotFoundReadError(readError) && !wasModified) {
+      // Silent recovery for stale tabs: file was removed/renamed externally.
+      delete openFiles[filePath];
+      if (openFilesOrder && openFilesOrder.includes(filePath)) {
+        const nextOrder = openFilesOrder.filter(function (p) { return p !== filePath; });
+        if (typeof setOpenFilesOrder === 'function') setOpenFilesOrder(nextOrder);
+        else openFilesOrder = nextOrder;
+      }
+      if (activeFile === filePath) {
+        const nextPath = (openFilesOrder && openFilesOrder.length ? openFilesOrder[0] : null);
+        if (typeof setActiveFile === 'function') setActiveFile(nextPath || null);
+        else activeFile = nextPath || null;
+        if (activeFile) {
+          await openFile(activeFile);
+        } else {
+          if (editor) editor.setModel(null);
+          showWelcome();
+          setBreadcrumb('');
+        }
+      }
+      refreshTabs();
+      saveState();
+      return;
+    }
     openFiles[filePath] = { content, savedContent: content, modified: false };
+  } else if (!wasModified && isParquet) {
+    // Parquet is a binary columnar format. Open as read-only info page to avoid data corruption.
+    const note =
+      'Parquet (.parquet) is a binary tabular format.\n' +
+      'Text editing is disabled for this file.\n\n' +
+      'Use export/conversion tools (e.g. parquet -> csv/json) for editing.';
+    openFiles[filePath] = { content: note, savedContent: note, modified: false, readonlyVirtual: true };
   }
-  if (!openFilesOrder || !openFilesOrder.length) openFilesOrder = Object.keys(openFiles);
+  if (!openFilesOrder || !openFilesOrder.length) {
+    if (typeof setOpenFilesOrder === 'function') setOpenFilesOrder(Object.keys(openFiles));
+    else openFilesOrder = Object.keys(openFiles);
+  }
   if (!openFilesOrder.includes(filePath)) openFilesOrder.push(filePath);
-  activeFile = filePath;
-  const lang = langOf(filePath);
+  if (typeof setActiveFile === 'function') setActiveFile(filePath);
+  else activeFile = filePath;
+  const lang = isParquet ? 'plaintext' : langOf(filePath);
   const freshContent = (openFiles[filePath]?.content ?? '');
   const fallback = document.getElementById('editor-fallback');
   const editorWrap = document.getElementById('editor-wrap');
@@ -588,6 +582,7 @@ async function openFile(filePath) {
       monaco.editor.setModelLanguage(model, lang);
     }
     editor.setModel(model);
+    if (typeof window.syncSplitEditorsModel === 'function') window.syncSplitEditorsModel();
     editor.layout();
     requestAnimationFrame(() => requestAnimationFrame(() => {
       editor.layout();
@@ -609,7 +604,9 @@ async function openFile(filePath) {
     }
     if (editorWrap) editorWrap.style.display = 'none';
   }
-  if (readError) {
+  if (isParquet) {
+    toast('Parquet открыт в режиме предпросмотра (read-only).', 'info', 3500);
+  } else if (readError && !isNotFoundReadError(readError)) {
     toast(`Ошибка чтения: ${readError}`, 'error', 5000);
   } else if (!freshContent && !wasModified) {
     toast('Файл пуст', 'info', 2000);
@@ -623,6 +620,10 @@ async function openFile(filePath) {
 
 async function saveFile() {
   if (!activeFile) return;
+  if (openFiles[activeFile]?.readonlyVirtual) {
+    toast('Этот Parquet-файл открыт только для просмотра и не может быть сохранён как текст.', 'info', 4500);
+    return;
+  }
   const fallback = document.getElementById('editor-fallback');
   const content = (fallback?.classList.contains('visible') ? fallback?.value : null)
     ?? (editor ? editor.getValue() : null)
@@ -638,24 +639,39 @@ async function saveFile() {
     toast('Сохранено', 'success', 1500);
     updateGitStatus();
   } catch (e) {
-    toast('Ошибка сохранения: ' + e.message, 'error', 6000);
+    if (!handleWritePermissionError(e, activeFile, 'Не удалось сохранить: у папки ограничен доступ.')) {
+      toast('Ошибка сохранения: ' + e.message, 'error', 6000);
+    }
   }
 }
 
 function closeTab(filePath) {
+  if (typeof window.getSecondaryFilePath === 'function' && window.getSecondaryFilePath() === filePath) {
+    if (typeof window.setSecondaryEditorFile === 'function') {
+      const fallback = (openFilesOrder || []).find(function (p) { return p && p !== filePath && openFiles[p]; });
+      if (fallback) window.setSecondaryEditorFile(fallback);
+      else if (typeof window.clearSplitEditorsModel === 'function') window.clearSplitEditorsModel();
+    }
+  }
   const uri = monaco?.Uri.file(filePath);
   const model = uri ? monaco?.editor?.getModel(uri) : null;
   if (model) model.dispose();
   delete openFiles[filePath];
   const closedIndex = openFilesOrder && openFilesOrder.indexOf(filePath);
-  if (openFilesOrder) openFilesOrder = openFilesOrder.filter(p => p !== filePath);
+  if (openFilesOrder) {
+    const nextOrder = openFilesOrder.filter(p => p !== filePath);
+    if (typeof setOpenFilesOrder === 'function') setOpenFilesOrder(nextOrder);
+    else openFilesOrder = nextOrder;
+  }
   if (activeFile === filePath) {
     const paths = openFilesOrder && openFilesOrder.length ? openFilesOrder : Object.keys(openFiles);
     const idx = closedIndex >= 0 ? Math.min(closedIndex, paths.length - 1) : 0;
-    activeFile = paths.length > 0 ? paths[idx] : null;
+    if (typeof setActiveFile === 'function') setActiveFile(paths.length > 0 ? paths[idx] : null);
+    else activeFile = paths.length > 0 ? paths[idx] : null;
     if (activeFile) openFile(activeFile);
     else {
       if (editor) editor.setModel(null);
+      if (typeof window.clearSplitEditorsModel === 'function') window.clearSplitEditorsModel();
       showWelcome();
       setBreadcrumb('');
     }
@@ -666,7 +682,7 @@ function closeTab(filePath) {
 
 function openFileModal(isDir, targetDir = null) {
   const dir = targetDir || projectRoot;
-  if (!dir) { toast('Сначала откройте папку проекта', 'info'); return; }
+  if (!dir) { UX.info('Сначала откройте папку проекта'); return; }
   startInlineCreate(dir, isDir);
 }
 
@@ -718,17 +734,19 @@ async function startInlineCreate(parentDir, isDir) {
       if (isDir) {
         await window.api.mkdir(fullPath);
         if (!_isUndoingExplorer) pushExplorerUndo({ type: 'create', path: fullPath });
-        toast(`Папка создана: ${name}`, 'success');
+        UX.success(`Папка создана: ${name}`);
       } else {
         await window.api.writeFile(fullPath, '');
         if (!_isUndoingExplorer) pushExplorerUndo({ type: 'create', path: fullPath });
         openFiles[fullPath] = { content: '', savedContent: '', modified: false };
         await openFile(fullPath);
-        toast(`Файл создан: ${name}`, 'success');
+        UX.success(`Файл создан: ${name}`);
       }
       await refreshTree();
     } catch (e) {
-      toast('Ошибка: ' + e.message, 'error', 6000);
+      if (!handleWritePermissionError(e, fullPath, 'Не удалось создать файл/папку: ограничен доступ.')) {
+        UX.error('Ошибка: ' + e.message, 6000);
+      }
     }
   };
   inp.addEventListener('keydown', e => {
@@ -781,15 +799,15 @@ async function handleCtxAction(action) {
   } else if (action === 'rename') {
     startInlineRename(p, name);
   } else if (action === 'delete') {
-    const ok = await showConfirm(`Удалить "${name}"? Это действие необратимо.`);
+    const ok = await showConfirm(`Удалить "${name}"? Это действие необратимо.`, { title: 'Удаление', okText: 'Удалить', cancelText: 'Отмена', danger: true });
     if (!ok) return;
     try {
       if (openFiles[p]) closeTab(p);
       await window.api.delete(p);
-      toast('Удалено', 'success');
+      UX.success('Удалено');
       await refreshTree();
     } catch (e) {
-      toast('Ошибка удаления: ' + e.message, 'error');
+      UX.error('Ошибка удаления: ' + e.message);
     }
   }
 }
@@ -882,11 +900,11 @@ async function doRename(oldPath, newName) {
     await window.api.rename(oldPath, newPath);
     if (!_isUndoingExplorer) pushExplorerUndo({ type: 'rename', from: oldPath, to: newPath });
     if (wasActive) await openFile(newPath);
-    toast('Переименовано', 'success');
+    UX.success('Переименовано');
     await refreshTree();
     refreshTabs();
   } catch (e) {
-    toast('Ошибка переименования: ' + e.message, 'error');
+    UX.error('Ошибка переименования: ' + e.message);
   }
 }
 

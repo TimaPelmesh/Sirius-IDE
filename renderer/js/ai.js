@@ -4,6 +4,7 @@
 let chats = [];
 let currentChatId = null;
 const LM_URL = 'http://127.0.0.1:1234/v1'; // fallback при отсутствии прокси (CORS может блокировать)
+let _aiRequestInFlight = false;
 
 function loadChats() {
   try {
@@ -26,10 +27,16 @@ function renderChatTabs() {
   for (const c of chats) {
     const tab = document.createElement('div');
     tab.className = 'chat-tab' + (c.id === currentChatId ? ' active' : '');
-    tab.innerHTML = `<span>${c.name}</span><button class="chat-tab-close" title="Удалить">✕</button>`;
+    const nameEl = document.createElement('span');
+    nameEl.textContent = c.name;
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'chat-tab-close';
+    closeBtn.title = 'Удалить';
+    closeBtn.textContent = '✕';
+    tab.append(nameEl, closeBtn);
     tab.addEventListener('click', ev => { if (!ev.target.closest('.chat-tab-close')) switchChat(c.id); });
-    tab.querySelector('span').addEventListener('dblclick', () => openRenameChatModal(c.id));
-    tab.querySelector('.chat-tab-close').addEventListener('click', ev => { ev.stopPropagation(); deleteChat(c.id); });
+    nameEl.addEventListener('dblclick', () => openRenameChatModal(c.id));
+    closeBtn.addEventListener('click', ev => { ev.stopPropagation(); deleteChat(c.id); });
     wrap.append(tab);
   }
 }
@@ -91,6 +98,17 @@ function md(text) {
     .replace(/\n/g, '<br/>');
 }
 
+function renderMarkdownSafe(text) {
+  const html = md(String(text || ''));
+  if (window.DOMPurify && typeof window.DOMPurify.sanitize === 'function') {
+    return window.DOMPurify.sanitize(html, {
+      ALLOWED_TAGS: ['p', 'br', 'pre', 'code', 'strong', 'em', 'h1', 'h2', 'h3', 'ul', 'ol', 'li', 'span'],
+      ALLOWED_ATTR: ['class'],
+    });
+  }
+  return html;
+}
+
 function renderMessages() {
   const container = $('ai-messages');
   const chat = currentChat();
@@ -117,7 +135,7 @@ function appendMessage(role, content, container, scroll = true) {
       <span class="msg-role">${roleLabel}</span>
       <button type="button" class="msg-copy" title="Копировать">${copyIcon}</button>
     </div>
-    <div class="msg-body${isLong ? ' collapsed' : ''}">${md(content)}</div>
+    <div class="msg-body${isLong ? ' collapsed' : ''}">${renderMarkdownSafe(content)}</div>
     ${isLong ? '<button type="button" class="msg-toggle">Показать полностью ▼</button>' : ''}
   `;
   var copyBtn = div.querySelector('.msg-copy');
@@ -345,7 +363,68 @@ var CMD_LABELS = {
   DELETEFILE: 'Удалён файл',
 };
 
-async function execTools(tools, onToolProgress) {
+function hasFileWriteIntent(userText) {
+  var s = String(userText || '').toLowerCase();
+  return /(созда|измени|исправ|обнов|добав|перепиш|сделай|в файле|файл|create|edit|update|fix|refactor|implement|change)/i.test(s);
+}
+
+function hasDeleteIntent(userText) {
+  var s = String(userText || '').toLowerCase();
+  return /(удали|delete|remove|стер|снести|удалить файл|delete file)/i.test(s);
+}
+
+function hasClearFileIntent(userText) {
+  var s = String(userText || '').toLowerCase();
+  return /(очист|сделай пустым|truncate|clear file|empty file)/i.test(s);
+}
+
+function extractUserScopedPaths(userText) {
+  var txt = String(userText || '');
+  var matches = txt.match(/([A-Za-z]:\\[^\s"'`]+|(?:\.{0,2}[\\/])?[A-Za-z0-9_\-.\/\\]+\.[A-Za-z0-9]{1,8})/g) || [];
+  return matches
+    .map(function (m) { return String(m || '').trim().replace(/^["'`]|["'`]$/g, ''); })
+    .filter(Boolean);
+}
+
+function isPathWithinScope(fullPath, relArg, scopedPaths) {
+  if (!scopedPaths || !scopedPaths.length) return false;
+  var fp = String(fullPath || '').toLowerCase().replace(/\//g, '\\');
+  var rel = String(relArg || '').toLowerCase().replace(/\//g, '\\');
+  for (var i = 0; i < scopedPaths.length; i++) {
+    var raw = String(scopedPaths[i] || '').toLowerCase().replace(/\//g, '\\');
+    if (!raw) continue;
+    if (fp.includes(raw) || (rel && rel.includes(raw))) return true;
+  }
+  return false;
+}
+
+function appendAiOpJournal(entry) {
+  try {
+    var key = 'sirius_ai_op_journal_v1';
+    var arr = JSON.parse(localStorage.getItem(key) || '[]');
+    if (!Array.isArray(arr)) arr = [];
+    arr.push(entry);
+    // Keep latest 300 records to avoid unbounded growth.
+    if (arr.length > 300) arr = arr.slice(arr.length - 300);
+    localStorage.setItem(key, JSON.stringify(arr));
+  } catch (_) {}
+}
+
+async function confirmRiskyOperation(t, fullPath, reason) {
+  if (typeof showConfirm !== 'function') return true;
+  var msg = 'AI хочет выполнить рискованную операцию:\n' +
+    t.cmd + ' ' + t.arg + '\n\n' +
+    'Причина: ' + reason + '\n\n' +
+    'Разрешить?';
+  return await showConfirm(msg, {
+    title: 'Подтверждение AI-операции',
+    okText: 'Разрешить',
+    cancelText: 'Отмена',
+    danger: true,
+  });
+}
+
+async function execTools(tools, onToolProgress, userText) {
   const results = [];
   const actions = [];
   const details = [];
@@ -354,6 +433,14 @@ async function execTools(tools, onToolProgress) {
     try { onToolProgress(phase, t, idx, total, ok, error); } catch (_) {}
   };
   var list = Array.isArray(tools) ? tools.slice(0, MAX_TOOL_CALLS_PER_REPLY) : [];
+  var allowWrite = hasFileWriteIntent(userText);
+  var allowDelete = hasDeleteIntent(userText);
+  var allowClear = hasClearFileIntent(userText);
+  var scopedPaths = extractUserScopedPaths(userText);
+  var defaultScope = [];
+  if (activeFile) defaultScope.push(activeFile);
+  // least-privilege default: if user did not mention paths, allow writes only to active file.
+  var hasExplicitScope = scopedPaths.length > 0;
   for (let i = 0; i < list.length; i++) {
     const t = list[i];
     if (!t || !/^(CREATEFILE|EDITFILE|READDIR|READFILE|DELETEFILE)$/.test(t.cmd || '')) continue;
@@ -365,10 +452,86 @@ async function execTools(tools, onToolProgress) {
       continue;
     }
     const fullPath = resolved.fullPath;
+    var inScope = hasExplicitScope
+      ? isPathWithinScope(fullPath, t.arg, scopedPaths)
+      : isPathWithinScope(fullPath, t.arg, defaultScope);
     notify('start', t, i, list.length);
     try {
       if (t.cmd === 'CREATEFILE' || t.cmd === 'EDITFILE') {
+        if (!allowWrite) {
+          var noWrite = 'Запись в файлы заблокирована: в запросе нет явного действия изменения файлов';
+          results.push(`Ошибка ${t.cmd} ${t.arg}: ${noWrite}`);
+          actions.push({ cmd: t.cmd, arg: t.arg, ok: false, error: noWrite });
+          details.push({ cmd: t.cmd, arg: t.arg, ok: false, error: noWrite });
+          notify('done', t, i, list.length, false, noWrite);
+          continue;
+        }
+        if (!inScope) {
+          var outOfScope = 'Операция вне разрешенного scope (least-privilege)';
+          results.push(`Ошибка ${t.cmd} ${t.arg}: ${outOfScope}`);
+          actions.push({ cmd: t.cmd, arg: t.arg, ok: false, error: outOfScope });
+          details.push({ cmd: t.cmd, arg: t.arg, ok: false, error: outOfScope });
+          appendAiOpJournal({
+            ts: new Date().toISOString(),
+            cmd: t.cmd,
+            arg: t.arg,
+            fullPath: fullPath,
+            ok: false,
+            blocked: true,
+            reason: outOfScope,
+          });
+          notify('done', t, i, list.length, false, outOfScope);
+          continue;
+        }
+        if (!String(t.body || '').trim()) {
+          var emptyBody = 'Пустое содержимое файла запрещено без явного запроса';
+          results.push(`Ошибка ${t.cmd} ${t.arg}: ${emptyBody}`);
+          actions.push({ cmd: t.cmd, arg: t.arg, ok: false, error: emptyBody });
+          details.push({ cmd: t.cmd, arg: t.arg, ok: false, error: emptyBody });
+          notify('done', t, i, list.length, false, emptyBody);
+          continue;
+        }
         const originalContent = openFiles[fullPath]?.content || '';
+        if (t.cmd === 'EDITFILE' && String(originalContent).trim() && !String(t.body).trim()) {
+          var clearBlocked = 'Очистка файла заблокирована без явного запроса пользователя';
+          results.push(`Ошибка ${t.cmd} ${t.arg}: ${clearBlocked}`);
+          actions.push({ cmd: t.cmd, arg: t.arg, ok: false, error: clearBlocked });
+          details.push({ cmd: t.cmd, arg: t.arg, ok: false, error: clearBlocked });
+          notify('done', t, i, list.length, false, clearBlocked);
+          continue;
+        }
+        if (t.cmd === 'EDITFILE' && String(originalContent).trim() && !allowClear) {
+          var beforeLen = String(originalContent).length;
+          var afterLen = String(t.body).length;
+          if (beforeLen > 200 && afterLen < Math.floor(beforeLen * 0.1)) {
+            var destructiveEdit = 'Подозрение на потерю содержимого: резкое сокращение файла без явного запроса';
+            results.push(`Ошибка ${t.cmd} ${t.arg}: ${destructiveEdit}`);
+            actions.push({ cmd: t.cmd, arg: t.arg, ok: false, error: destructiveEdit });
+            details.push({ cmd: t.cmd, arg: t.arg, ok: false, error: destructiveEdit });
+            notify('done', t, i, list.length, false, destructiveEdit);
+            continue;
+          }
+          if (beforeLen > 200 && afterLen < Math.floor(beforeLen * 0.5)) {
+            var okRisk = await confirmRiskyOperation(t, fullPath, 'сильное сокращение контента');
+            if (!okRisk) {
+              var deniedRisk = 'Отклонено пользователем: рискованная операция';
+              results.push(`Ошибка ${t.cmd} ${t.arg}: ${deniedRisk}`);
+              actions.push({ cmd: t.cmd, arg: t.arg, ok: false, error: deniedRisk });
+              details.push({ cmd: t.cmd, arg: t.arg, ok: false, error: deniedRisk });
+              appendAiOpJournal({
+                ts: new Date().toISOString(),
+                cmd: t.cmd,
+                arg: t.arg,
+                fullPath: fullPath,
+                ok: false,
+                blocked: true,
+                reason: deniedRisk,
+              });
+              notify('done', t, i, list.length, false, deniedRisk);
+              continue;
+            }
+          }
+        }
         await window.api.writeFile(fullPath, t.body);
         if (!openFiles[fullPath]) openFiles[fullPath] = { content: t.body, savedContent: t.body, modified: false };
         else {
@@ -381,18 +544,80 @@ async function execTools(tools, onToolProgress) {
         results.push(`${t.cmd} ${t.arg}: OK`);
         actions.push({ cmd: t.cmd, arg: t.arg, ok: true });
         details.push({ cmd: t.cmd, arg: t.arg, ok: true });
+        appendAiOpJournal({
+          ts: new Date().toISOString(),
+          cmd: t.cmd,
+          arg: t.arg,
+          fullPath: fullPath,
+          ok: true,
+        });
         toast(t.cmd === 'CREATEFILE' ? 'Создан: ' + t.arg : 'Изменён: ' + t.arg, 'success');
       } else if (t.cmd === 'DELETEFILE') {
+        if (!allowDelete) {
+          var noDelete = 'DELETEFILE заблокирован: нет явного запроса пользователя на удаление';
+          results.push(`Ошибка ${t.cmd} ${t.arg}: ${noDelete}`);
+          actions.push({ cmd: t.cmd, arg: t.arg, ok: false, error: noDelete });
+          details.push({ cmd: t.cmd, arg: t.arg, ok: false, error: noDelete });
+          notify('done', t, i, list.length, false, noDelete);
+          continue;
+        }
+        if (!inScope) {
+          var deleteOutOfScope = 'DELETEFILE вне разрешенного scope (least-privilege)';
+          results.push(`Ошибка ${t.cmd} ${t.arg}: ${deleteOutOfScope}`);
+          actions.push({ cmd: t.cmd, arg: t.arg, ok: false, error: deleteOutOfScope });
+          details.push({ cmd: t.cmd, arg: t.arg, ok: false, error: deleteOutOfScope });
+          appendAiOpJournal({
+            ts: new Date().toISOString(),
+            cmd: t.cmd,
+            arg: t.arg,
+            fullPath: fullPath,
+            ok: false,
+            blocked: true,
+            reason: deleteOutOfScope,
+          });
+          notify('done', t, i, list.length, false, deleteOutOfScope);
+          continue;
+        }
+        var okDelete = await confirmRiskyOperation(t, fullPath, 'удаление файла');
+        if (!okDelete) {
+          var deniedDelete = 'Удаление отменено пользователем';
+          results.push(`Ошибка ${t.cmd} ${t.arg}: ${deniedDelete}`);
+          actions.push({ cmd: t.cmd, arg: t.arg, ok: false, error: deniedDelete });
+          details.push({ cmd: t.cmd, arg: t.arg, ok: false, error: deniedDelete });
+          appendAiOpJournal({
+            ts: new Date().toISOString(),
+            cmd: t.cmd,
+            arg: t.arg,
+            fullPath: fullPath,
+            ok: false,
+            blocked: true,
+            reason: deniedDelete,
+          });
+          notify('done', t, i, list.length, false, deniedDelete);
+          continue;
+        }
         await window.api.delete(fullPath);
         if (openFiles[fullPath]) {
           if (activeFile === fullPath) closeTab(fullPath);
           else delete openFiles[fullPath];
-          if (openFilesOrder) openFilesOrder = openFilesOrder.filter(function (p) { return p !== fullPath; });
+          if (openFilesOrder) {
+            const nextOrder = openFilesOrder.filter(function (p) { return p !== fullPath; });
+            if (typeof setOpenFilesOrder === 'function') setOpenFilesOrder(nextOrder);
+            else openFilesOrder = nextOrder;
+          }
         }
         refreshTree();
         results.push(`DELETEFILE ${t.arg}: OK`);
         actions.push({ cmd: t.cmd, arg: t.arg, ok: true });
         details.push({ cmd: t.cmd, arg: t.arg, ok: true });
+        appendAiOpJournal({
+          ts: new Date().toISOString(),
+          cmd: t.cmd,
+          arg: t.arg,
+          fullPath: fullPath,
+          ok: true,
+          risky: true,
+        });
         toast('Удалён: ' + t.arg, 'success');
       } else if (t.cmd === 'READDIR') {
         const entries = await window.api.readDir(fullPath);
@@ -411,6 +636,14 @@ async function execTools(tools, onToolProgress) {
       results.push(`Ошибка ${t.cmd} ${t.arg}: ${e.message}`);
       actions.push({ cmd: t.cmd, arg: t.arg, ok: false, error: e.message });
       details.push({ cmd: t.cmd, arg: t.arg, ok: false, error: e.message });
+      appendAiOpJournal({
+        ts: new Date().toISOString(),
+        cmd: t.cmd,
+        arg: t.arg,
+        fullPath: fullPath,
+        ok: false,
+        error: String(e && e.message || e || ''),
+      });
       notify('done', t, i, list.length, false, e.message);
     }
   }
@@ -582,22 +815,33 @@ module.exports = { x };
 3. Не ломай существующий функционал без прямого запроса.
 4. Если пользователь просит изменить файл (и путь известен из <current_file> или явно указан) — в финальном шаге используй EDITFILE/CREATEFILE и передай полный исходник файла.
    Модель не должна завершать ответ одним лишь описанием изменений — только командами (РЕЖИМ A) и итоговым текстом файла.
-4. Если в запросе есть неоднозначность, мешающая безопасному действию:
+5. Никогда не очищай файл до пустого состояния и не удаляй файл, если пользователь не попросил это прямо.
+6. Не выполняй массовые или разрушительные операции "на всякий случай".
+7. Если правка может потерять существенную часть контента — сначала спроси подтверждение текстом (РЕЖИМ B) или выполни безопасное чтение.
+8. Если в запросе есть неоднозначность, мешающая безопасному действию:
    - в РЕЖИМЕ B задай 1 короткий уточняющий вопрос.
    - если можно безопасно продолжить частично — сначала выполни безопасный шаг (обычно READFILE/READDIR).
 
 ========================
-9) ПЕРЕД ОТПРАВКОЙ (САМООЦЕНКА)
+9) БЕЗОПАСНОСТЬ ПО УМОЛЧАНИЮ
+========================
+1. Запись файлов (CREATEFILE/EDITFILE) — только при явном запросе пользователя на изменение файлов.
+2. DELETEFILE — только при явном запросе на удаление.
+3. При сомнении выбирай безопасный вариант: READFILE/READDIR или уточняющий вопрос.
+
+========================
+10) ПЕРЕД ОТПРАВКОЙ (САМООЦЕНКА)
 ========================
 Проверь молча:
 1. Я выбрал правильный режим (A или B)?
 2. Если режим A: есть только команды, формат команд валиден?
 3. Пути корректны и согласованы с <project_tree>/<current_file>?
 4. Для EDITFILE/CREATEFILE после ] идёт только сырой текст файла?
-5. Ответ действительно решает задачу пользователя, а не описывает намерение?
+5. Нет ли риска удалить/очистить/потерять содержимое без явного запроса?
+6. Ответ действительно решает задачу пользователя, а не описывает намерение?
 
 ========================
-10) ЯЗЫК И СТИЛЬ
+11) ЯЗЫК И СТИЛЬ
 ========================
 1. Пиши на языке пользователя.
 2. Будь конкретным и проверяемым.
@@ -607,6 +851,11 @@ module.exports = { x };
 var MAX_TOOL_ROUNDS = 3;
 
 async function sendMessage() {
+  if (_aiRequestInFlight) {
+    if (_currentStreamAbort) _currentStreamAbort.abort();
+    if (window.api && window.api.abortLMStudioStream) window.api.abortLMStudioStream();
+    return;
+  }
   const inp = $('ai-input');
   const text = inp.value.trim();
   if (!text) return;
@@ -615,15 +864,23 @@ async function sendMessage() {
   var sendBtn = $('ai-send');
   var sendBtnOriginalHtml = sendBtn.innerHTML;
   sendBtn.disabled = false;
+  sendBtn.classList.add('is-stopping');
   sendBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1"/></svg><span class="ai-send-stop-label">Стоп</span>';
   sendBtn.title = 'Остановить запрос';
   sendBtn.onclick = function () {
     if (_currentStreamAbort) _currentStreamAbort.abort();
     if (window.api && window.api.abortLMStudioStream) window.api.abortLMStudioStream();
   };
+  inp.disabled = true;
+  _aiRequestInFlight = true;
 
   const chat = currentChat();
-  if (!chat) return;
+  if (!chat) {
+    _aiRequestInFlight = false;
+    inp.disabled = false;
+    sendBtn.classList.remove('is-stopping');
+    return;
+  }
 
   chat.messages.push({ role: 'user', content: text });
   renderMessages();
@@ -696,7 +953,7 @@ async function sendMessage() {
       await streamToLMStudio(apiMessages, function (chunk) {
         fullReply += chunk;
         var el = typingEl.querySelector('.typing-indicator');
-        if (el) el.innerHTML = '<div class="msg-body">' + md(cleanReply(fullReply)) + '</div>';
+        if (el) el.innerHTML = '<div class="msg-body">' + renderMarkdownSafe(cleanReply(fullReply)) + '</div>';
         msgsEl.scrollTop = msgsEl.scrollHeight;
       }, _currentStreamAbort ? _currentStreamAbort.signal : undefined, apiOptions);
 
@@ -708,7 +965,7 @@ async function sendMessage() {
       setToolsBusy('start', tools[0], 0, tools.length, true, null);
       var out = await execTools(tools, function (phase, t, idx, total, ok, error) {
         setToolsBusy(phase, t, idx, total, ok, error);
-      });
+      }, lastUserContent);
       allToolActions = allToolActions.concat(out.actions || []);
       var toolResultContent = formatToolResultsForModel(out.details || []);
 
@@ -722,7 +979,10 @@ async function sendMessage() {
     if (fullReply === '' && !userStopped) fullReply = 'Ошибка подключения к LM Studio: ' + errMsg;
   } finally {
     _currentStreamAbort = null;
+    _aiRequestInFlight = false;
+    inp.disabled = false;
     sendBtn.disabled = false;
+    sendBtn.classList.remove('is-stopping');
     sendBtn.innerHTML = sendBtnOriginalHtml;
     sendBtn.title = 'Отправить (Enter)';
     sendBtn.onclick = sendMessage;
@@ -757,4 +1017,14 @@ function startLmPoll() {
     updateGitStatus();
     setInterval(updateGitStatus, 30000);
   }, 2000);
+}
+
+if (typeof window !== 'undefined') {
+  window.getAiOperationJournal = function () {
+    try { return JSON.parse(localStorage.getItem('sirius_ai_op_journal_v1') || '[]'); }
+    catch (_) { return []; }
+  };
+  window.clearAiOperationJournal = function () {
+    try { localStorage.removeItem('sirius_ai_op_journal_v1'); } catch (_) {}
+  };
 }
