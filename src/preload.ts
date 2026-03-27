@@ -51,7 +51,7 @@ contextBridge.exposeInMainWorld('api', {
 
   // ── LM Studio (proxy через main, без CORS) ─────────────────
   getLMStudioModels: () => ipcRenderer.invoke('lmstudio-models'),
-  streamLMStudioChat: (payload: { messages: unknown[]; temperature?: number; max_tokens?: number; response_format?: { type: string } }) => ipcRenderer.invoke('lmstudio-stream', payload),
+  streamLMStudioChat: (payload: { messages: unknown[]; temperature?: number; max_tokens?: number; response_format?: unknown }) => ipcRenderer.invoke('lmstudio-stream', payload),
   abortLMStudioStream: () => ipcRenderer.send('lmstudio-abort'),
   onLMStudioChunk: (cb: (chunk: string) => void) => {
     const handler = (_: Electron.IpcRendererEvent, chunk: string) => cb(chunk);

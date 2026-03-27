@@ -158,7 +158,7 @@ ipcMain.handle('lmstudio-stream', async (_: unknown, payload: unknown) => {
   if (!win?.webContents) return;
   const messages = Array.isArray(payload) ? payload : (payload as { messages?: unknown[] })?.messages;
   if (!messages || !Array.isArray(messages)) return;
-  const opts = typeof payload === 'object' && payload !== null && !Array.isArray(payload) ? (payload as { temperature?: number; max_tokens?: number; response_format?: { type: string } }) : {};
+  const opts = typeof payload === 'object' && payload !== null && !Array.isArray(payload) ? (payload as { temperature?: number; max_tokens?: number; response_format?: unknown }) : {};
   const temperature = typeof opts.temperature === 'number' ? opts.temperature : 0.4;
   const max_tokens = typeof opts.max_tokens === 'number' ? opts.max_tokens : 32768;
   const body: Record<string, unknown> = {
@@ -341,37 +341,42 @@ ipcMain.handle('fix-folder-permissions', async (_: unknown, dirPath: string) => 
   }
 });
 
-// ── New Window ───────────────────────────────────────────────
+// ── New Window: disabled — focus main window instead ─────────
 ipcMain.handle('new-window', () => {
-  const win = new BrowserWindow({
-    width: 1440, height: 900, minWidth: 800, minHeight: 500, frame: false,
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true, nodeIntegration: false,
-    },
-    show: false,
-  });
-  win.loadURL(`${rendererBaseUrl}/renderer/index.html`);
-  win.once('ready-to-show', () => win.show());
-  win.on('maximize',   () => win.webContents.send('win-maximized', true));
-  win.on('unmaximize', () => win.webContents.send('win-maximized', false));
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  }
 });
 
 // ── App lifecycle ────────────────────────────────────────────
-app.whenReady().then(async () => {
-  try {
-    rendererBaseUrl = await startStaticServer(0);
-  } catch (e) {
-    console.error('Static server (random port) failed:', e);
-    try {
-      rendererBaseUrl = await startStaticServer(9876);
-    } catch (_) {
-      dialog.showErrorBox('Sirius IDE', 'Не удалось запустить локальный сервер. Редактор работает только по HTTP. Закройте другие копии приложения или освободите порт 9876.');
-      app.quit();
-      return;
+// Single-instance lock — prevent running multiple copies
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
     }
-  }
-  createWindow();
-});
-app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
-app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+  });
+
+  app.whenReady().then(async () => {
+    try {
+      rendererBaseUrl = await startStaticServer(0);
+    } catch (e) {
+      console.error('Static server (random port) failed:', e);
+      try {
+        rendererBaseUrl = await startStaticServer(9876);
+      } catch (_) {
+        dialog.showErrorBox('Sirius IDE', 'Не удалось запустить локальный сервер. Редактор работает только по HTTP. Закройте другие копии приложения или освободите порт 9876.');
+        app.quit();
+        return;
+      }
+    }
+    createWindow();
+  });
+  app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+  app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+}

@@ -15,10 +15,23 @@ function getEditorThemeId() {
 function applyEditorTheme(themeId) {
   if (!themeId) return;
   localStorage.setItem('nb_editor_theme', themeId);
-  updateMonacoTheme();
+  if (!monaco || !monaco.editor) return;
+  // Re-define themes with new preset so token rules reload immediately
+  defineCustomThemes(monaco);
+  var tid = getMonacoThemeId();
+  try {
+    monaco.editor.setTheme(tid);
+  } catch (_) {
+    try { monaco.editor.setTheme('vs-dark'); } catch (__) {}
+  }
+  // Force relayout on both editor instances
+  try { editor?.layout(); } catch (_) {}
+  try { editorSecondary?.layout(); } catch (_) {}
 }
 
-var SELECTION_BG = 'rgba(79,70,229,.2)';
+// Monaco requires hex8 (#RRGGBBAA) — rgba() is silently ignored and falls back to red
+var SELECTION_BG       = '#818cf840';  // indigo-300, ~25% — dark themes
+var SELECTION_BG_LIGHT = '#4f46e526';  // indigo-600, ~15% — light themes
 var _csvLanguageRegistered = false;
 var editorSecondary = null;
 var _editorSplitEnabled = false;
@@ -134,6 +147,8 @@ function defineCustomThemes(m) {
         'editor.background': '#' + backgrounds.dark.bg,
         'editor.foreground': '#' + backgrounds.dark.fg,
         'editor.selectionBackground': SELECTION_BG,
+        'editor.inactiveSelectionBackground': '#818cf828',
+        'editor.selectionHighlightBackground': '#818cf820',
         'editorCursor.foreground': '#8ea0ff',
         'editorLineNumber.foreground': '#' + backgrounds.dark.line,
         'editorLineNumber.activeForeground': '#' + backgrounds.dark.fg,
@@ -146,7 +161,9 @@ function defineCustomThemes(m) {
       colors: {
         'editor.background': '#' + backgrounds.light.bg,
         'editor.foreground': '#' + backgrounds.light.fg,
-        'editor.selectionBackground': 'rgba(95,117,255,.16)',
+        'editor.selectionBackground': SELECTION_BG_LIGHT,
+        'editor.inactiveSelectionBackground': '#4f46e518',
+        'editor.selectionHighlightBackground': '#4f46e514',
         'editorCursor.foreground': '#3f51d9',
         'editorLineNumber.foreground': '#' + backgrounds.light.line,
         'editorLineNumber.activeForeground': '#' + backgrounds.light.fg,
@@ -340,7 +357,14 @@ function initMonaco() {
       defineCustomThemes(monaco);
       registerCsvLanguage(monaco);
       var themeId = getMonacoThemeId();
-      try { monaco.editor.setTheme(themeId); } catch (_) { monaco.editor.setTheme('sirius-dark-classic'); }
+      // Apply theme after registration settles (defineTheme is sync but Chromium
+      // may defer the first paint pass — rAF guarantees the theme is active before
+      // the editor renders its first frame, fixing "theme reverts after reload").
+      requestAnimationFrame(function () {
+        try { monaco.editor.setTheme(themeId); } catch (_) {
+          try { monaco.editor.setTheme('sirius-dark-classic'); } catch (__) {}
+        }
+      });
       editor = monaco.editor.create($('editor-wrap'), {
         value: '',
         language: 'plaintext',

@@ -19,6 +19,172 @@ let _gitErrorCount = 0;
 let _isUndoingExplorer = false;
 const _explorerUndoStack = [];
 const EXPLORER_UNDO_LIMIT = 30;
+let _treeRefreshDebounceTimer = null;
+let _treeRefreshGeneration = 0;
+let _treeRefreshInFlight = 0;
+
+function getPathSep() {
+  return projectRoot && projectRoot.indexOf('/') !== -1 ? '/' : '\\';
+}
+
+function getTrashDir() {
+  if (!projectRoot) return '';
+  const sep = getPathSep();
+  return projectRoot.replace(/[\\/]$/, '') + sep + '.trash';
+}
+
+function isTrashRootPath(p) {
+  const trash = getTrashDir();
+  if (!trash || !p) return false;
+  const n = String(p).replace(/\//g, '\\').toLowerCase();
+  return n === trash.replace(/\//g, '\\').toLowerCase();
+}
+
+function isPathInTrash(p) {
+  const trash = getTrashDir();
+  if (!trash || !p) return false;
+  const n = String(p).replace(/\//g, '\\').toLowerCase();
+  const t = trash.replace(/\//g, '\\').toLowerCase();
+  return n === t || n.startsWith(t + '\\');
+}
+
+async function ensureTrashDir() {
+  const trash = getTrashDir();
+  if (!trash) return '';
+  if (!(await window.api.exists(trash))) await window.api.mkdir(trash);
+  return trash;
+}
+
+function trashMetaPath() {
+  const trash = getTrashDir();
+  if (!trash) return '';
+  return trash.replace(/[\\/]$/, '') + getPathSep() + '.meta.json';
+}
+
+async function loadTrashMeta() {
+  const metaPath = trashMetaPath();
+  if (!metaPath) return {};
+  try {
+    if (!(await window.api.exists(metaPath))) return {};
+    const raw = await window.api.readFile(metaPath);
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+async function saveTrashMeta(meta) {
+  const metaPath = trashMetaPath();
+  if (!metaPath) return;
+  await window.api.writeFile(metaPath, JSON.stringify(meta || {}, null, 2));
+}
+
+async function ensureDirPath(dir) {
+  if (!dir) return;
+  if (await window.api.exists(dir)) return;
+  const parent = dir.replace(/[\\/][^\\/]+$/, '');
+  if (parent && parent !== dir) await ensureDirPath(parent);
+  await window.api.mkdir(dir);
+}
+
+async function movePathToTrash(srcPath) {
+  const trashDir = await ensureTrashDir();
+  const sep = getPathSep();
+  const baseName = srcPath.replace(/^.*[\\/]/, '');
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  let candidate = trashDir + sep + baseName + '__' + stamp;
+  let i = 1;
+  while (await window.api.exists(candidate)) {
+    candidate = trashDir + sep + baseName + '__' + stamp + '_' + i;
+    i++;
+  }
+  const rel = projectRoot ? srcPath.replace(projectRoot.replace(/[\\/]$/, ''), '').replace(/^[\\/]/, '') : baseName;
+  await window.api.rename(srcPath, candidate);
+  const meta = await loadTrashMeta();
+  meta[candidate] = { originalRelPath: rel, deletedAt: new Date().toISOString() };
+  await saveTrashMeta(meta);
+  return candidate;
+}
+
+async function getRestoreDestination(trashPath) {
+  const sep = getPathSep();
+  const meta = await loadTrashMeta();
+  const rec = meta[trashPath];
+  let rel = rec && rec.originalRelPath ? String(rec.originalRelPath) : '';
+  if (!rel) {
+    const rawName = trashPath.replace(/^.*[\\/]/, '').replace(/__\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}(?:_\d+)?$/, '');
+    rel = rawName || 'restored_item';
+  }
+  const parts = rel.split(/[\\/]/).filter(Boolean);
+  const safeRel = parts.join(sep);
+  const base = projectRoot.replace(/[\\/]$/, '') + sep + safeRel;
+  if (!(await window.api.exists(base))) return { path: base, meta };
+  const fileName = base.replace(/^.*[\\/]/, '');
+  const dir = base.replace(/[\\/][^\\/]+$/, '');
+  const unique = await getUniqueDestPath(dir, fileName);
+  return { path: unique, meta };
+}
+
+async function previewTrashItem(trashPath) {
+  try {
+    const stat = await window.api.stat(trashPath);
+    const meta = await loadTrashMeta();
+    const rec = meta[trashPath];
+    const from = rec?.originalRelPath ? `\nИсходный путь: ${rec.originalRelPath}` : '';
+    if (stat.isDirectory) {
+      const entries = await window.api.readDir(trashPath);
+      const names = entries.slice(0, 20).map(e => (e.isDirectory ? '📁 ' : '📄 ') + e.name).join('\n');
+      await showConfirm(`Папка в корзине.${from}\n\nЭлементов: ${entries.length}\n${names}${entries.length > 20 ? '\n…' : ''}`, {
+        title: 'Preview корзины',
+        okText: 'Закрыть',
+        cancelText: 'Закрыть',
+      });
+      return;
+    }
+    const res = await window.api.readFileSafe(trashPath);
+    const content = res?.error ? `(Ошибка чтения: ${res.error})` : (res?.content || '');
+    const lines = String(content).split('\n').slice(0, 40).join('\n');
+    await showConfirm(`Файл в корзине.${from}\n\n${lines}${String(content).split('\n').length > 40 ? '\n…' : ''}`, {
+      title: 'Preview корзины',
+      okText: 'Закрыть',
+      cancelText: 'Закрыть',
+    });
+  } catch (e) {
+    toast('Не удалось показать preview: ' + e.message, 'error');
+  }
+}
+
+async function restoreTrashItem(trashPath) {
+  const { path: destPath, meta } = await getRestoreDestination(trashPath);
+  await ensureDirPath(destPath.replace(/[\\/][^\\/]+$/, ''));
+  await window.api.rename(trashPath, destPath);
+  if (meta[trashPath]) {
+    delete meta[trashPath];
+    await saveTrashMeta(meta);
+  }
+  toast('Восстановлено: ' + destPath.replace(/^.*[\\/]/, ''), 'success');
+}
+
+async function clearTrash() {
+  const trash = getTrashDir();
+  if (!trash) return;
+  if (!(await window.api.exists(trash))) {
+    toast('Корзина уже пуста', 'info');
+    return;
+  }
+  const ok = await showConfirm('Очистить корзину (.trash)? Это необратимо.', {
+    title: 'Очистка корзины',
+    okText: 'Очистить',
+    cancelText: 'Отмена',
+    danger: true,
+  });
+  if (!ok) return;
+  await window.api.delete(trash);
+  await window.api.mkdir(trash);
+  await saveTrashMeta({});
+  toast('Корзина очищена', 'success');
+}
 
 function pushExplorerUndo(action) {
   if (_isUndoingExplorer) return;
@@ -298,8 +464,8 @@ async function deleteSelectionOrActive() {
     return c === p || (c.startsWith(p) && (c[p.length] === sep || c[p.length] === '/'));
   };
   const msg = paths.length > 1
-    ? `Удалить выбранные элементы (${paths.length})? Это действие необратимо.`
-    : `Удалить "${paths[0].replace(/^.*[\\/]/, '')}"? Это действие необратимо.`;
+    ? `Перенести в корзину выбранные элементы (${paths.length})?`
+    : `Перенести "${paths[0].replace(/^.*[\\/]/, '')}" в корзину?`;
   const ok = await showConfirm(msg, { title: 'Удаление', okText: 'Удалить', cancelText: 'Отмена', danger: true });
   if (!ok) return;
   const toClose = Object.keys(openFiles || {}).filter(openPath =>
@@ -307,48 +473,15 @@ async function deleteSelectionOrActive() {
   );
   for (const p of toClose) closeTab(p);
   const sorted = paths.slice().sort((a, b) => b.length - a.length);
-  async function snapshotPath(p) {
-    const st = await window.api.stat(p);
-    if (!st || !st.isDirectory) {
-      return { kind: 'file', content: await window.api.readFile(p) };
-    }
-    const entries = await window.api.readDir(p);
-    const children = [];
-    for (const e of entries) {
-      children.push({ name: e.name, data: await snapshotPath(e.path) });
-    }
-    return { kind: 'dir', children };
-  }
-  async function restoreSnapshot(path, snap) {
-    if (!snap) return;
-    if (snap.kind === 'file') {
-      const parent = path.replace(/[\\/][^\\/]+$/, '');
-      await ensureDir(parent);
-      await window.api.writeFile(path, snap.content || '');
-      return;
-    }
-    await ensureDir(path);
-    for (const child of (snap.children || [])) {
-      const childPath = path.replace(/[\\/]$/, '') + '\\' + child.name;
-      await restoreSnapshot(childPath, child.data);
-    }
-  }
-  async function ensureDir(dir) {
-    if (!dir) return;
-    if (await window.api.exists(dir)) return;
-    const parent = dir.replace(/[\\/][^\\/]+$/, '');
-    if (parent && parent !== dir) await ensureDir(parent);
-    await window.api.mkdir(dir);
-  }
-  const snapshots = [];
-  for (const p of sorted) {
-    try { snapshots.push({ path: p, data: await snapshotPath(p) }); } catch (_) {}
-  }
+  const moved = [];
   try {
-    for (const p of sorted) await window.api.delete(p);
+    for (const p of sorted) {
+      const trashPath = await movePathToTrash(p);
+      moved.push({ from: p, to: trashPath });
+    }
     selectedTreePaths.clear();
-    if (!_isUndoingExplorer) pushExplorerUndo({ type: 'delete', snapshots });
-    UX.success(paths.length > 1 ? `Удалено: ${paths.length} элементов` : 'Удалено');
+    if (!_isUndoingExplorer) pushExplorerUndo({ type: 'trash-move', items: moved });
+    UX.success(paths.length > 1 ? `В корзину: ${paths.length} элементов` : 'Перемещено в корзину');
     await refreshTree();
     refreshTabs();
   } catch (e) {
@@ -416,7 +549,8 @@ async function clipboardPaste(targetDir) {
   }
 }
 
-async function refreshTree(dir, container, depth) {
+async function refreshTreeNow(dir, container, depth, generation) {
+  if (generation && generation !== _treeRefreshGeneration) return;
   if (dir === undefined || dir === null) {
     const tree = $('file-tree');
     tree.innerHTML = '';
@@ -430,31 +564,51 @@ async function refreshTree(dir, container, depth) {
       if (b2) b2.onclick = openFolder;
       return;
     }
-    await refreshTree(projectRoot, tree, 0);
+    await refreshTreeNow(projectRoot, tree, 0, generation);
     return;
   }
   let entries;
   try { entries = await window.api.readDir(dir); }
   catch (_) { return; }
+  if (generation && generation !== _treeRefreshGeneration) return;
+  if (depth === 0 && container) container.innerHTML = '';
+  entries = entries.filter(e => e.name !== '.meta.json');
   entries.sort((a, b) => {
     if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
     return a.name.localeCompare(b.name);
   });
-  for (const e of entries) {
+  // Separate .trash so it always renders at the very bottom with a special label.
+  const mainEntries = entries.filter(e => e.name !== '.trash');
+  const trashSeen = new Set();
+  const trashEntries = entries.filter(e => {
+    if (e.name !== '.trash' || !e.isDirectory) return false;
+    const key = String(e.path || '').toLowerCase();
+    if (trashSeen.has(key)) return false;
+    trashSeen.add(key);
+    return true;
+  });
+  const allEntries = [...mainEntries, ...trashEntries];
+  for (const e of allEntries) {
+    // Mark .trash items visually
+    const isTrashRoot = e.name === '.trash' && e.isDirectory;
     const item = document.createElement('div');
     item.className = 'tree-item';
     item.dataset.path = e.path;
     item.dataset.isdir = e.isDirectory ? '1' : '0';
     item.style.paddingLeft = (8 + depth * 14) + 'px';
+    if (isTrashRoot) item.classList.add('tree-trash-root');
     if (e.isDirectory) {
       const isOpen = expandedDirs.has(e.path);
       const chv = `<svg class="tree-chv${isOpen?' open':''}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="5 2 11 8 5 14"/></svg>`;
-      item.innerHTML = `${chv}${getFileIcon(e.name, true)}<span class="name">${escapeHtml(e.name)}</span>`;
+      const trashIcon = isTrashRoot
+        ? `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" style="color:var(--c-text-dim);flex-shrink:0"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>`
+        : getFileIcon(e.name, true);
+      item.innerHTML = `${chv}${trashIcon}<span class="name">${escapeHtml(isTrashRoot ? 'Корзина' : e.name)}</span>`;
       const children = document.createElement('div');
       children.className = 'tree-children';
       children.style.display = isOpen ? 'block' : 'none';
       container.append(item, children);
-      if (isOpen) await refreshTree(e.path, children, depth + 1);
+      if (isOpen) await refreshTreeNow(e.path, children, depth + 1, generation);
       item.addEventListener('click', async ev => {
         ev.stopPropagation();
         const wasOpen = expandedDirs.has(e.path);
@@ -462,7 +616,7 @@ async function refreshTree(dir, container, depth) {
         else {
           expandedDirs.add(e.path); children.style.display = 'block';
           children.innerHTML = '';
-          await refreshTree(e.path, children, depth + 1);
+          await refreshTreeNow(e.path, children, depth + 1, generation);
         }
         item.querySelector('.tree-chv').classList.toggle('open', !wasOpen);
       });
@@ -484,9 +638,29 @@ async function refreshTree(dir, container, depth) {
     makeDraggable(item, e.path, e.isDirectory, e.name);
     item.addEventListener('contextmenu', ev => {
       ev.preventDefault(); ev.stopPropagation();
-      showCtxMenu(ev.clientX, ev.clientY, { path: e.path, isDir: e.isDirectory, name: e.name });
+      showCtxMenu(ev.clientX, ev.clientY, { path: e.path, isDir: e.isDirectory, name: e.name, isTrashRoot });
     });
   }
+}
+
+function refreshTree(dir, container, depth) {
+  if (dir !== undefined || container !== undefined || depth !== undefined) {
+    return refreshTreeNow(dir, container, depth, _treeRefreshGeneration);
+  }
+  if (_treeRefreshDebounceTimer) clearTimeout(_treeRefreshDebounceTimer);
+  const generation = ++_treeRefreshGeneration;
+  return new Promise((resolve) => {
+    _treeRefreshDebounceTimer = setTimeout(async () => {
+      _treeRefreshDebounceTimer = null;
+      _treeRefreshInFlight = generation;
+      try {
+        await refreshTreeNow(undefined, undefined, undefined, generation);
+      } finally {
+        if (_treeRefreshInFlight === generation) _treeRefreshInFlight = 0;
+        resolve();
+      }
+    }, 120);
+  });
 }
 
 function refreshTreeSelection() {
@@ -768,7 +942,16 @@ function showCtxMenu(x, y, target) {
   _ctxTarget = target;
   const menu = $('ctx-menu');
   const pasteEl = $('ctx-paste');
+  const restoreEl = $('ctx-restore');
+  const previewEl = $('ctx-preview');
+  const clearTrashEl = $('ctx-clear-trash');
+  const isTrash = isPathInTrash(target?.path);
+  const isTrashRoot = !!target?.isTrashRoot || isTrashRootPath(target?.path);
+  const canRestore = isTrash && !isTrashRoot;
   if (pasteEl) pasteEl.style.display = _clipboard ? '' : 'none';
+  if (restoreEl) restoreEl.style.display = canRestore ? '' : 'none';
+  if (previewEl) previewEl.style.display = canRestore ? '' : 'none';
+  if (clearTrashEl) clearTrashEl.style.display = isTrashRoot ? '' : 'none';
   menu.style.display = 'block';
   const vw = window.innerWidth, vh = window.innerHeight;
   const mw = menu.offsetWidth || 200, mh = menu.offsetHeight || 160;
@@ -808,6 +991,22 @@ async function handleCtxAction(action) {
       await refreshTree();
     } catch (e) {
       UX.error('Ошибка удаления: ' + e.message);
+    }
+  } else if (action === 'restore') {
+    try {
+      await restoreTrashItem(p);
+      await refreshTree();
+    } catch (e) {
+      UX.error('Ошибка восстановления: ' + e.message);
+    }
+  } else if (action === 'preview') {
+    await previewTrashItem(p);
+  } else if (action === 'clear-trash') {
+    try {
+      await clearTrash();
+      await refreshTree();
+    } catch (e) {
+      UX.error('Ошибка очистки корзины: ' + e.message);
     }
   }
 }
@@ -926,29 +1125,18 @@ async function undoExplorerLastAction() {
       for (let i = action.paths.length - 1; i >= 0; i--) {
         await window.api.delete(action.paths[i]);
       }
-    } else if (action.type === 'delete') {
-      async function ensureDir(dir) {
-        if (!dir) return;
-        if (await window.api.exists(dir)) return;
-        const parent = dir.replace(/[\\/][^\\/]+$/, '');
-        if (parent && parent !== dir) await ensureDir(parent);
-        await window.api.mkdir(dir);
+    } else if (action.type === 'trash-move') {
+      const items = Array.isArray(action.items) ? action.items.slice().reverse() : [];
+      for (const it of items) {
+        try {
+          await window.api.rename(it.to, it.from);
+          const meta = await loadTrashMeta();
+          if (meta[it.to]) {
+            delete meta[it.to];
+            await saveTrashMeta(meta);
+          }
+        } catch (_) {}
       }
-      async function restoreSnapshot(path, snap) {
-        if (!snap) return;
-        if (snap.kind === 'file') {
-          const parent = path.replace(/[\\/][^\\/]+$/, '');
-          await ensureDir(parent);
-          await window.api.writeFile(path, snap.content || '');
-          return;
-        }
-        await ensureDir(path);
-        for (const child of (snap.children || [])) {
-          const childPath = path.replace(/[\\/]$/, '') + '\\' + child.name;
-          await restoreSnapshot(childPath, child.data);
-        }
-      }
-      for (const s of (action.snapshots || [])) await restoreSnapshot(s.path, s.data);
     }
     await refreshTree();
     refreshTabs();

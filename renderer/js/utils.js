@@ -134,25 +134,148 @@ const FILE_ICON_INFO = {
 function extOf(name) { return (name.split('.').pop() || '').toLowerCase(); }
 function langOf(name) { return EXT_LANG[extOf(name)] || 'plaintext'; }
 
+// Special files that override the generic ext-based icon
+const SPECIAL_FILE_ICONS = {
+  'package.json':       { bg:'#cc3a10', fg:'#fff', label:'NPM' },
+  'package-lock.json':  { bg:'#cc3a10', fg:'#fff', label:'NPM' },
+  'yarn.lock':          { bg:'#2c8ebb', fg:'#fff', label:'YARN' },
+  'pnpm-lock.yaml':     { bg:'#f69220', fg:'#fff', label:'PNP' },
+  'tsconfig.json':      { bg:'#3178c6', fg:'#fff', label:'TSC' },
+  'tsconfig.base.json': { bg:'#3178c6', fg:'#fff', label:'TSC' },
+  '.eslintrc':          { bg:'#4b32c3', fg:'#fff', label:'ESL' },
+  '.eslintrc.js':       { bg:'#4b32c3', fg:'#fff', label:'ESL' },
+  '.eslintrc.json':     { bg:'#4b32c3', fg:'#fff', label:'ESL' },
+  '.prettierrc':        { bg:'#f7b93e', fg:'#333', label:'PRT' },
+  '.prettierrc.js':     { bg:'#f7b93e', fg:'#333', label:'PRT' },
+  '.gitignore':         { bg:'#f05032', fg:'#fff', label:'GIT' },
+  '.gitattributes':     { bg:'#f05032', fg:'#fff', label:'GIT' },
+  '.env':               { bg:'#3d5a80', fg:'#98c379', label:'ENV' },
+  '.env.local':         { bg:'#3d5a80', fg:'#98c379', label:'ENV' },
+  '.env.example':       { bg:'#3d5a80', fg:'#98c379', label:'ENV' },
+  'dockerfile':         { bg:'#2496ed', fg:'#fff', label:'DKR' },
+  'docker-compose.yml': { bg:'#2496ed', fg:'#fff', label:'DKR' },
+  'docker-compose.yaml':{ bg:'#2496ed', fg:'#fff', label:'DKR' },
+  'vite.config.ts':     { bg:'#646cff', fg:'#fff', label:'VITE' },
+  'vite.config.js':     { bg:'#646cff', fg:'#fff', label:'VITE' },
+  'webpack.config.js':  { bg:'#8dd6f9', fg:'#1a252f', label:'WPK' },
+  'jest.config.js':     { bg:'#c21325', fg:'#fff', label:'JEST' },
+  'jest.config.ts':     { bg:'#c21325', fg:'#fff', label:'JEST' },
+  'vitest.config.ts':   { bg:'#6e9f18', fg:'#fff', label:'VTT' },
+  'tailwind.config.js': { bg:'#38bdf8', fg:'#fff', label:'TW' },
+  'tailwind.config.ts': { bg:'#38bdf8', fg:'#fff', label:'TW' },
+  'next.config.js':     { bg:'#000', fg:'#fff', label:'NXT' },
+  'next.config.ts':     { bg:'#000', fg:'#fff', label:'NXT' },
+  'nuxt.config.ts':     { bg:'#00dc82', fg:'#fff', label:'NXT' },
+  'readme.md':          { bg:'#083fa1', fg:'#fff', label:'README' },
+  'changelog.md':       { bg:'#083fa1', fg:'#fff', label:'CHG' },
+  'license':            { bg:'#888', fg:'#fff', label:'LIC' },
+  'makefile':           { bg:'#2d2d2d', fg:'#f8f8f2', label:'MK' },
+  'cargo.toml':         { bg:'#ce412b', fg:'#fff', label:'CARGO' },
+  'go.mod':             { bg:'#00add8', fg:'#fff', label:'MOD' },
+  'requirements.txt':   { bg:'#4b8bbe', fg:'#ffe873', label:'REQ' },
+  'pyproject.toml':     { bg:'#4b8bbe', fg:'#ffe873', label:'PYP' },
+  'setup.py':           { bg:'#4b8bbe', fg:'#ffe873', label:'SET' },
+};
+
+// Folder color themes based on common names
+const FOLDER_THEMES = {
+  src:          '#4f8de8',
+  source:       '#4f8de8',
+  app:          '#4f8de8',
+  lib:          '#7c6af7',
+  libs:         '#7c6af7',
+  components:   '#b87fff',
+  component:    '#b87fff',
+  pages:        '#e87d4f',
+  views:        '#e87d4f',
+  routes:       '#e87d4f',
+  utils:        '#4fc1e9',
+  util:         '#4fc1e9',
+  helpers:      '#4fc1e9',
+  hooks:        '#4fc1e9',
+  assets:       '#62b87e',
+  images:       '#62b87e',
+  img:          '#62b87e',
+  icons:        '#62b87e',
+  fonts:        '#62b87e',
+  static:       '#62b87e',
+  public:       '#62b87e',
+  styles:       '#cf649a',
+  css:          '#264de4',
+  scss:         '#cf649a',
+  styles_css:   '#cf649a',
+  tests:        '#f7b93e',
+  test:         '#f7b93e',
+  __tests__:    '#f7b93e',
+  spec:         '#f7b93e',
+  docs:         '#38bdf8',
+  doc:          '#38bdf8',
+  documentation:'#38bdf8',
+  scripts:      '#e87d4f',
+  config:       '#9ca3af',
+  configs:      '#9ca3af',
+  '.github':    '#f05032',
+  '.vscode':    '#0078d7',
+  node_modules: '#5a6270',
+  dist:         '#5a6270',
+  build:        '#5a6270',
+  out:          '#5a6270',
+  output:       '#5a6270',
+  '.git':       '#f05032',
+  api:          '#4fc1e9',
+  server:       '#62b87e',
+  client:       '#4f8de8',
+  backend:      '#62b87e',
+  frontend:     '#4f8de8',
+  store:        '#e87d4f',
+  redux:        '#764abc',
+  models:       '#e87d4f',
+  types:        '#3178c6',
+  interfaces:   '#3178c6',
+  middleware:   '#9ca3af',
+  data:         '#cbcb41',
+  database:     '#cbcb41',
+  db:           '#cbcb41',
+};
+
 function getFileIcon(name, isDir) {
   if (isDir) {
+    const key = name.toLowerCase().replace(/[^a-z0-9_.-]/g, '_');
+    const color = FOLDER_THEMES[name.toLowerCase()] || FOLDER_THEMES[key] || '#dcb862';
+    const isSpecial = FOLDER_THEMES[name.toLowerCase()] !== undefined;
+    const folderDark = isSpecial
+      ? color.replace('#', '').match(/../g)?.map(x => Math.max(0, parseInt(x, 16) - 30).toString(16).padStart(2,'0')).join('')
+      : 'b08820';
+    const dc = isSpecial ? `#${folderDark}` : '#b08820';
     return `<svg class="ic file-icon" width="16" height="16" viewBox="0 0 16 16" fill="none">
-      <path d="M1.5 4a1 1 0 0 1 1-1h3.5l1.5 1.5h7a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1V4z" fill="#dcb862"/>
-      <path d="M6 3v1.5h7" stroke="rgba(0,0,0,.2)" stroke-width="0.6" fill="none"/>
+      <path d="M1.5 4a1 1 0 0 1 1-1h3.5l1.5 1.5h7a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1V4z" fill="${color}"/>
+      <path d="M1.5 6.5h13" stroke="${dc}" stroke-width="0.5" opacity=".6"/>
+    </svg>`;
+  }
+  // Check special files first (by full name, case-insensitive)
+  const lname = name.toLowerCase();
+  const specialInfo = SPECIAL_FILE_ICONS[lname];
+  if (specialInfo) {
+    var sfs = specialInfo.label.length <= 2 ? 6 : specialInfo.label.length === 3 ? 5.2 : 4.0;
+    return `<svg class="ic file-icon" width="16" height="16" viewBox="0 0 16 16">
+      <path d="M3 1.5h7.2L14 5v9.5a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V2.5a1 1 0 0 1 1-1z" fill="${specialInfo.bg}"/>
+      <path d="M10.2 1v3.5H14" fill="none" stroke="rgba(255,255,255,.25)" stroke-width="0.6"/>
+      <path d="M10 1l4 4H10V1z" fill="rgba(0,0,0,.1)"/>
+      <text x="8" y="10.2" text-anchor="middle" font-size="${sfs}" font-weight="700" fill="${specialInfo.fg}" font-family="Consolas,'Cascadia Code',monospace" letter-spacing="-0.2">${specialInfo.label}</text>
     </svg>`;
   }
   const ext = extOf(name);
   const info = FILE_ICON_INFO[ext];
   if (!info) {
     return `<svg class="ic file-icon" width="16" height="16" viewBox="0 0 16 16">
-      <path d="M4 1.5L10 1v3.5h4V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V2.5a1 1 0 0 1 1-1h1z" fill="var(--c-text-dim)" opacity=".6"/>
+      <path d="M4 1.5L10 1v3.5h4V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V2.5a1 1 0 0 1 1-1h1z" fill="var(--c-text-dim)" opacity=".5"/>
       <path d="M10 1v3.5h4" fill="none" stroke="var(--c-bg)" stroke-width="0.7"/>
     </svg>`;
   }
   var fs = info.label.length <= 2 ? 6 : info.label.length === 3 ? 5.2 : 4.2;
   return `<svg class="ic file-icon" width="16" height="16" viewBox="0 0 16 16">
     <path d="M3 1.5h7.2L14 5v9.5a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V2.5a1 1 0 0 1 1-1z" fill="${info.bg}"/>
-    <path d="M10.2 1v3.5H14" fill="none" stroke="rgba(255,255,255,.3)" stroke-width="0.6"/>
+    <path d="M10.2 1v3.5H14" fill="none" stroke="rgba(255,255,255,.25)" stroke-width="0.6"/>
     <path d="M10 1l4 4H10V1z" fill="rgba(0,0,0,.08)"/>
     <text x="8" y="10.2" text-anchor="middle" font-size="${fs}" font-weight="700" fill="${info.fg}" font-family="Consolas,'Cascadia Code',monospace" letter-spacing="-0.2">${info.label}</text>
   </svg>`;

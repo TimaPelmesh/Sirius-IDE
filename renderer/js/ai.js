@@ -82,11 +82,22 @@ function applyRenameChat() {
   saveChats();
 }
 
-function md(text) {
-  return text
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code class="lang-$1">$2</code></pre>')
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
+function md(rawText) {
+  // Phase 1: extract code blocks BEFORE any HTML escaping
+  const blocks = [];
+  var s = String(rawText || '').replace(/```(\w*)\r?\n?([\s\S]*?)```/g, function(_, lang, code) {
+    var idx = blocks.length;
+    blocks.push({ lang: (lang || '').toLowerCase().trim(), code: code.replace(/\n$/, '') });
+    return '\x00BLK' + idx + '\x00';
+  });
+
+  // Phase 2: HTML-escape the non-code text
+  s = s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  // Phase 3: inline markdown (safe — after escaping)
+  s = s
+    .replace(/`([^`\n]+)`/g, '<code class="inline-code">$1</code>')
+    .replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>')
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
     .replace(/^### (.+)$/gm, '<h3>$1</h3>')
@@ -96,14 +107,65 @@ function md(text) {
     .replace(/(<li>.*<\/li>)/gs, '<ul>$1</ul>')
     .replace(/\n\n+/g, '</p><p>')
     .replace(/\n/g, '<br/>');
+
+  // Phase 4: restore code blocks with syntax highlighting
+  s = s.replace(/\x00BLK(\d+)\x00/g, function(_, idxStr) {
+    var blk = blocks[parseInt(idxStr)];
+    var lang = blk.lang;
+    var code = blk.code;
+
+    // Try Prism syntax highlighting
+    var highlighted = '';
+    try {
+      if (window.Prism && lang) {
+        var grammar = Prism.languages[lang]
+          || Prism.languages[lang === 'sh' ? 'bash' : lang]
+          || Prism.languages[lang === 'js' ? 'javascript' : lang]
+          || Prism.languages[lang === 'ts' ? 'typescript' : lang]
+          || Prism.languages[lang === 'py' ? 'python' : lang];
+        if (grammar) highlighted = Prism.highlight(code, grammar, lang);
+      }
+    } catch (_) {}
+
+    if (!highlighted) {
+      highlighted = code
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    var displayLang = lang || 'code';
+    var copyIconSvg = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+    var doneIconSvg  = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+
+    return '<div class="cb-wrap">'
+      + '<div class="cb-header">'
+      + '<span class="cb-lang">' + displayLang + '</span>'
+      + '<button class="cb-copy" data-copy-icon="' + encodeURIComponent(copyIconSvg) + '" data-done-icon="' + encodeURIComponent(doneIconSvg) + '" title="\u041a\u043e\u043f\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u043a\u043e\u0434">'
+      + copyIconSvg + ' \u041a\u043e\u043f\u0438\u0440\u043e\u0432\u0430\u0442\u044c'
+      + '</button>'
+      + '</div>'
+      + '<pre class="cb-pre language-' + lang + '"><code class="language-' + lang + '">' + highlighted + '</code></pre>'
+      + '</div>';
+  });
+
+  return s;
 }
 
 function renderMarkdownSafe(text) {
-  const html = md(String(text || ''));
+  var html = md(String(text || ''));
   if (window.DOMPurify && typeof window.DOMPurify.sanitize === 'function') {
     return window.DOMPurify.sanitize(html, {
-      ALLOWED_TAGS: ['p', 'br', 'pre', 'code', 'strong', 'em', 'h1', 'h2', 'h3', 'ul', 'ol', 'li', 'span'],
-      ALLOWED_ATTR: ['class'],
+      ALLOWED_TAGS: [
+        'p', 'br', 'pre', 'code', 'strong', 'em',
+        'h1', 'h2', 'h3', 'ul', 'ol', 'li',
+        'span', 'div', 'button',
+        'svg', 'path', 'polyline', 'rect', 'circle', 'line',
+      ],
+      ALLOWED_ATTR: [
+        'class', 'title', 'data-copy-icon', 'data-done-icon',
+        'width', 'height', 'viewBox',
+        'fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin',
+        'points', 'd', 'x', 'y', 'x1', 'y1', 'x2', 'y2', 'cx', 'cy', 'r', 'rx', 'ry',
+      ],
     });
   }
   return html;
@@ -181,15 +243,21 @@ function parseModelFromApiResponse(data) {
 
 async function fetchModels() {
   const setOnline = (model) => {
-    $('model-name').textContent = model || '—';
-    $('ai-dot').className = 'ai-dot online';
-    $('sb-dot').className = 'sb-dot online';
+    const nameEl = $('model-name');
+    if (nameEl) { nameEl.textContent = model || 'Подключено'; nameEl.title = model || ''; }
+    const aiDot = $('ai-dot');
+    if (aiDot) aiDot.className = 'ai-dot online';
+    const sbDot = $('sb-dot');
+    if (sbDot) sbDot.className = 'sb-dot online';
     $('sb-lm').title = 'LM Studio: ' + (model || 'подключено');
   };
   const setOffline = () => {
-    $('model-name').textContent = 'LM Studio недоступен';
-    $('ai-dot').className = 'ai-dot';
-    $('sb-dot').className = 'sb-dot';
+    const nameEl = $('model-name');
+    if (nameEl) { nameEl.textContent = 'Модель не подключена'; nameEl.title = 'LM Studio недоступен — запустите LM Studio и загрузите модель'; }
+    const aiDot = $('ai-dot');
+    if (aiDot) aiDot.className = 'ai-dot';
+    const sbDot = $('sb-dot');
+    if (sbDot) sbDot.className = 'sb-dot';
   };
   try {
     if (window.api?.getLMStudioModels) {
@@ -338,6 +406,133 @@ async function getProjectContextBlock() {
 var TOOL_NAMES = 'CREATEFILE|EDITFILE|READDIR|READFILE|DELETEFILE';
 var MAX_TOOL_CALLS_PER_REPLY = 12;
 
+// ── Token estimation ──────────────────────────────────────────
+function estimateTokens(messages) {
+  var chars = messages.reduce(function (acc, m) {
+    return acc + String(m.content || '').length + 4;
+  }, 0);
+  return Math.ceil(chars / 3.5); // ~3.5 chars/token for mixed RU/EN
+}
+
+function updateTokenIndicator(messages) {
+  var el = document.getElementById('ai-token-count');
+  if (!el) return;
+  if (!messages || !messages.length) { el.textContent = ''; return; }
+  var est = estimateTokens(messages);
+  var k = est >= 1000 ? (est / 1000).toFixed(1) + 'k' : String(est);
+  var maxK = MAX_TOKENS >= 1000 ? (MAX_TOKENS / 1000).toFixed(0) + 'k' : String(MAX_TOKENS);
+  el.textContent = k + ' / ' + maxK;
+  var pct = est / MAX_TOKENS;
+  el.className = 'ai-token-count' + (pct > 0.82 ? ' warn' : pct > 0.55 ? ' med' : '');
+  el.title = 'Контекст: ~' + est.toLocaleString() + ' токенов из ' + MAX_TOKENS.toLocaleString();
+}
+
+// ── Tool step log ─────────────────────────────────────────────
+function createExecLog() {
+  var log = document.createElement('div');
+  log.className = 'ai-exec-log';
+  var title = document.createElement('div');
+  title.className = 'ai-exec-log-title';
+  title.textContent = 'Выполнение';
+  log.appendChild(title);
+  return log;
+}
+
+function addExecStep(log, cmd, arg) {
+  var step = document.createElement('div');
+  step.className = 'ai-exec-step pending';
+  step.innerHTML =
+    '<div class="ai-exec-step-icon"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="9"/></svg></div>' +
+    '<span class="ai-exec-step-cmd">' + escapeHtml(cmd) + '</span>' +
+    '<span class="ai-exec-step-arg">' + escapeHtml(arg) + '</span>' +
+    '<span class="ai-exec-step-meta">ожидание</span>';
+  log.appendChild(step);
+  return step;
+}
+
+function setExecStepState(step, state, meta) {
+  step.className = 'ai-exec-step ' + state;
+  var metaEl = step.querySelector('.ai-exec-step-meta');
+  if (metaEl) metaEl.textContent = meta || '';
+  var iconEl = step.querySelector('.ai-exec-step-icon');
+  if (!iconEl) return;
+  if (state === 'running') {
+    iconEl.innerHTML = ''; // CSS spinner via className
+  } else if (state === 'done') {
+    iconEl.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8"><polyline points="20 6 9 17 4 12"/></svg>';
+  } else if (state === 'error') {
+    iconEl.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+  } else if (state === 'skipped') {
+    iconEl.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/></svg>';
+  }
+}
+
+// ── Accept / Reject card for AI file writes ───────────────────
+function buildSimpleDiff(oldText, newText) {
+  const o = String(oldText || '').split('\n');
+  const n = String(newText || '').split('\n');
+  const added   = n.filter(l => !o.includes(l)).length;
+  const removed = o.filter(l => !n.includes(l)).length;
+  return { added, removed, oldLen: o.length, newLen: n.length };
+}
+
+function showAiChangeCard(cmd, fullPath, relPath, newContent, oldContent) {
+  return new Promise((resolve) => {
+    const msgArea = document.getElementById('ai-messages');
+    if (!msgArea) { resolve(true); return; }
+
+    const { added, removed, oldLen, newLen } = buildSimpleDiff(oldContent, newContent);
+    const isNew = cmd === 'CREATEFILE' || !String(oldContent || '').trim();
+    const fileName = relPath.split(/[\\/]/).pop();
+    const ext = fileName.split('.').pop().toLowerCase();
+    const previewLines = String(newContent || '').split('\n').slice(0, 12);
+    const langClass = `language-${ext}`;
+
+    const card = document.createElement('div');
+    card.className = 'ai-change-card';
+    card.innerHTML = `
+      <div class="ai-change-header">
+        <span class="ai-change-cmd ${isNew ? 'create' : 'edit'}">${isNew ? '+ Создать' : '✎ Изменить'}</span>
+        <span class="ai-change-path" title="${fullPath}">${relPath}</span>
+      </div>
+      <div class="ai-change-stats">
+        ${isNew
+          ? `<span class="ai-change-stat new">Новый файл · ${newLen} строк</span>`
+          : `<span class="ai-change-stat add">+${added}</span><span class="ai-change-stat rem">-${removed}</span><span class="ai-change-stat info">${oldLen}→${newLen} строк</span>`
+        }
+      </div>
+      <details class="ai-change-preview">
+        <summary>Предпросмотр</summary>
+        <pre class="ai-change-pre"><code class="${langClass}">${escapeHtml(previewLines.join('\n'))}${previewLines.length < String(newContent || '').split('\n').length ? '\n…' : ''}</code></pre>
+      </details>
+      <div class="ai-change-actions">
+        <button class="ai-change-reject">✕ Отклонить</button>
+        <button class="ai-change-accept">✓ Принять</button>
+      </div>
+    `;
+
+    msgArea.appendChild(card);
+    msgArea.scrollTop = msgArea.scrollHeight;
+
+    // Highlight preview if Prism is available
+    if (window.Prism) {
+      const codeEl = card.querySelector('code');
+      if (codeEl) Prism.highlightElement(codeEl);
+    }
+
+    card.querySelector('.ai-change-accept').addEventListener('click', () => {
+      card.classList.add('ai-change-accepted');
+      setTimeout(() => card.remove(), 500);
+      resolve(true);
+    });
+    card.querySelector('.ai-change-reject').addEventListener('click', () => {
+      card.classList.add('ai-change-rejected');
+      setTimeout(() => card.remove(), 500);
+      resolve(false);
+    });
+  });
+}
+
 function parseToolCalls(text) {
   const tools = [];
   const re = new RegExp('\\[(' + TOOL_NAMES + '):([^\\]]*)\\]([\\s\\S]*?)(?=\\[(?:' + TOOL_NAMES + '):|$)', 'g');
@@ -350,9 +545,74 @@ function parseToolCalls(text) {
   return tools;
 }
 
+function extractJsonPayload(text) {
+  var raw = String(text || '').trim();
+  if (!raw) return null;
+  raw = raw.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/, '').trim();
+  try {
+    return JSON.parse(raw);
+  } catch (_) {}
+  var start = raw.indexOf('{');
+  var end = raw.lastIndexOf('}');
+  if (start >= 0 && end > start) {
+    try { return JSON.parse(raw.slice(start, end + 1)); } catch (_) {}
+  }
+  return null;
+}
+
+function parseStructuredToolCalls(text) {
+  var payload = extractJsonPayload(text);
+  if (!payload || typeof payload !== 'object') return null;
+  var rawTools = Array.isArray(payload.tool_calls) ? payload.tool_calls : [];
+  var tools = [];
+  for (var i = 0; i < rawTools.length; i++) {
+    var t = rawTools[i];
+    if (!t || typeof t !== 'object') continue;
+    var cmd = String(t.cmd || '').toUpperCase().trim();
+    if (!/^(CREATEFILE|EDITFILE|READDIR|READFILE|DELETEFILE)$/.test(cmd)) continue;
+    tools.push({ cmd: cmd, arg: String(t.arg || '').trim(), body: String(t.body || '') });
+  }
+  return {
+    reply: String(payload.assistant_reply || payload.reply || '').trim(),
+    tools: tools,
+  };
+}
+
+function looksLikeAgentJson(text) {
+  var s = String(text || '').trim();
+  if (!s) return false;
+  return s.indexOf('"assistant_reply"') !== -1 || s.indexOf('"tool_calls"') !== -1;
+}
+
+function extractAssistantReplyPreview(text) {
+  var s = String(text || '');
+  var m = s.match(/"assistant_reply"\s*:\s*"([^"]*)/);
+  if (!m || !m[1]) return '';
+  return m[1]
+    .replace(/\\"/g, '"')
+    .replace(/\\n/g, '\n')
+    .replace(/\\t/g, '\t')
+    .trim();
+}
+
+function stripLeakedToolText(text) {
+  var s = String(text || '');
+  if (!s) return '';
+  // Remove fenced tool_code blocks completely.
+  s = s.replace(/```(?:tool_code|tools?|json)?\s*[\r\n]+[\s\S]*?```/gi, '');
+  // Remove inline "tool_code" sections and command-like lines.
+  s = s.replace(/(^|\n)\s*tool_code\s*\n[\s\S]*$/i, '$1');
+  s = s.replace(/(^|\n)\s*(CREATEFILE|EDITFILE|READFILE|READDIR|DELETEFILE)\s*:\s*[^\n]*(\n|$)/gi, '$1');
+  s = s.replace(/\[(CREATEFILE|EDITFILE|READFILE|READDIR|DELETEFILE):[^\]]*\][\s\S]*?(?=\[(?:CREATEFILE|EDITFILE|READFILE|READDIR|DELETEFILE):|$)/gi, '');
+  return s.trim();
+}
+
 function cleanReply(text) {
+  var structured = parseStructuredToolCalls(text);
+  if (structured) return stripLeakedToolText(structured.reply);
+  if (looksLikeAgentJson(text)) return stripLeakedToolText(extractAssistantReplyPreview(text));
   const re = new RegExp('\\[(' + TOOL_NAMES + '):[^\\]]*\\][\\s\\S]*?(?=\\[(?:' + TOOL_NAMES + '):|$)', 'g');
-  return text.replace(re, '').trim();
+  return stripLeakedToolText(text.replace(re, '').trim());
 }
 
 var CMD_LABELS = {
@@ -365,7 +625,11 @@ var CMD_LABELS = {
 
 function hasFileWriteIntent(userText) {
   var s = String(userText || '').toLowerCase();
-  return /(созда|измени|исправ|обнов|добав|перепиш|сделай|в файле|файл|create|edit|update|fix|refactor|implement|change)/i.test(s);
+  // Matches explicit action verbs that imply writing/changing files.
+  // The real safety gate is the per-file Accept/Reject card shown to the user;
+  // this check only prevents the model from silently writing when the user
+  // asked a purely informational question.
+  return /(созда|измени|исправ|обнов|добав|перепиш|сделай|напиш|реализ|заполн|отрефактор|прорефактор|построй|реструктур|перенес|перемест|оптимиз|задокумент|покрой|генер|в файле|в код|create|edit|update|fix|refactor|implement|change|write|build|generate|add|modify|move|rename|optimize|document|patch)/i.test(s);
 }
 
 function hasDeleteIntent(userText) {
@@ -376,26 +640,6 @@ function hasDeleteIntent(userText) {
 function hasClearFileIntent(userText) {
   var s = String(userText || '').toLowerCase();
   return /(очист|сделай пустым|truncate|clear file|empty file)/i.test(s);
-}
-
-function extractUserScopedPaths(userText) {
-  var txt = String(userText || '');
-  var matches = txt.match(/([A-Za-z]:\\[^\s"'`]+|(?:\.{0,2}[\\/])?[A-Za-z0-9_\-.\/\\]+\.[A-Za-z0-9]{1,8})/g) || [];
-  return matches
-    .map(function (m) { return String(m || '').trim().replace(/^["'`]|["'`]$/g, ''); })
-    .filter(Boolean);
-}
-
-function isPathWithinScope(fullPath, relArg, scopedPaths) {
-  if (!scopedPaths || !scopedPaths.length) return false;
-  var fp = String(fullPath || '').toLowerCase().replace(/\//g, '\\');
-  var rel = String(relArg || '').toLowerCase().replace(/\//g, '\\');
-  for (var i = 0; i < scopedPaths.length; i++) {
-    var raw = String(scopedPaths[i] || '').toLowerCase().replace(/\//g, '\\');
-    if (!raw) continue;
-    if (fp.includes(raw) || (rel && rel.includes(raw))) return true;
-  }
-  return false;
 }
 
 function appendAiOpJournal(entry) {
@@ -434,13 +678,7 @@ async function execTools(tools, onToolProgress, userText) {
   };
   var list = Array.isArray(tools) ? tools.slice(0, MAX_TOOL_CALLS_PER_REPLY) : [];
   var allowWrite = hasFileWriteIntent(userText);
-  var allowDelete = hasDeleteIntent(userText);
   var allowClear = hasClearFileIntent(userText);
-  var scopedPaths = extractUserScopedPaths(userText);
-  var defaultScope = [];
-  if (activeFile) defaultScope.push(activeFile);
-  // least-privilege default: if user did not mention paths, allow writes only to active file.
-  var hasExplicitScope = scopedPaths.length > 0;
   for (let i = 0; i < list.length; i++) {
     const t = list[i];
     if (!t || !/^(CREATEFILE|EDITFILE|READDIR|READFILE|DELETEFILE)$/.test(t.cmd || '')) continue;
@@ -452,9 +690,6 @@ async function execTools(tools, onToolProgress, userText) {
       continue;
     }
     const fullPath = resolved.fullPath;
-    var inScope = hasExplicitScope
-      ? isPathWithinScope(fullPath, t.arg, scopedPaths)
-      : isPathWithinScope(fullPath, t.arg, defaultScope);
     notify('start', t, i, list.length);
     try {
       if (t.cmd === 'CREATEFILE' || t.cmd === 'EDITFILE') {
@@ -464,23 +699,6 @@ async function execTools(tools, onToolProgress, userText) {
           actions.push({ cmd: t.cmd, arg: t.arg, ok: false, error: noWrite });
           details.push({ cmd: t.cmd, arg: t.arg, ok: false, error: noWrite });
           notify('done', t, i, list.length, false, noWrite);
-          continue;
-        }
-        if (!inScope) {
-          var outOfScope = 'Операция вне разрешенного scope (least-privilege)';
-          results.push(`Ошибка ${t.cmd} ${t.arg}: ${outOfScope}`);
-          actions.push({ cmd: t.cmd, arg: t.arg, ok: false, error: outOfScope });
-          details.push({ cmd: t.cmd, arg: t.arg, ok: false, error: outOfScope });
-          appendAiOpJournal({
-            ts: new Date().toISOString(),
-            cmd: t.cmd,
-            arg: t.arg,
-            fullPath: fullPath,
-            ok: false,
-            blocked: true,
-            reason: outOfScope,
-          });
-          notify('done', t, i, list.length, false, outOfScope);
           continue;
         }
         if (!String(t.body || '').trim()) {
@@ -532,6 +750,16 @@ async function execTools(tools, onToolProgress, userText) {
             }
           }
         }
+        // ── Show Accept/Reject card before writing ──────────
+        const accepted = await showAiChangeCard(t.cmd, fullPath, t.arg, t.body, originalContent);
+        if (!accepted) {
+          const rejected = 'Отклонено пользователем';
+          results.push(`${t.cmd} ${t.arg}: ${rejected}`);
+          actions.push({ cmd: t.cmd, arg: t.arg, ok: false, error: rejected });
+          details.push({ cmd: t.cmd, arg: t.arg, ok: false, error: rejected });
+          notify('done', t, i, list.length, false, rejected);
+          continue;
+        }
         await window.api.writeFile(fullPath, t.body);
         if (!openFiles[fullPath]) openFiles[fullPath] = { content: t.body, savedContent: t.body, modified: false };
         else {
@@ -553,50 +781,17 @@ async function execTools(tools, onToolProgress, userText) {
         });
         toast(t.cmd === 'CREATEFILE' ? 'Создан: ' + t.arg : 'Изменён: ' + t.arg, 'success');
       } else if (t.cmd === 'DELETEFILE') {
-        if (!allowDelete) {
-          var noDelete = 'DELETEFILE заблокирован: нет явного запроса пользователя на удаление';
-          results.push(`Ошибка ${t.cmd} ${t.arg}: ${noDelete}`);
-          actions.push({ cmd: t.cmd, arg: t.arg, ok: false, error: noDelete });
-          details.push({ cmd: t.cmd, arg: t.arg, ok: false, error: noDelete });
-          notify('done', t, i, list.length, false, noDelete);
-          continue;
+        // Move to .trash instead of permanent delete — fully recoverable.
+        const sep = projectRoot.includes('/') ? '/' : '\\';
+        const trashDir = projectRoot.replace(/[\\/]$/, '') + sep + '.trash';
+        if (!(await window.api.exists(trashDir))) {
+          await window.api.mkdir(trashDir);
         }
-        if (!inScope) {
-          var deleteOutOfScope = 'DELETEFILE вне разрешенного scope (least-privilege)';
-          results.push(`Ошибка ${t.cmd} ${t.arg}: ${deleteOutOfScope}`);
-          actions.push({ cmd: t.cmd, arg: t.arg, ok: false, error: deleteOutOfScope });
-          details.push({ cmd: t.cmd, arg: t.arg, ok: false, error: deleteOutOfScope });
-          appendAiOpJournal({
-            ts: new Date().toISOString(),
-            cmd: t.cmd,
-            arg: t.arg,
-            fullPath: fullPath,
-            ok: false,
-            blocked: true,
-            reason: deleteOutOfScope,
-          });
-          notify('done', t, i, list.length, false, deleteOutOfScope);
-          continue;
-        }
-        var okDelete = await confirmRiskyOperation(t, fullPath, 'удаление файла');
-        if (!okDelete) {
-          var deniedDelete = 'Удаление отменено пользователем';
-          results.push(`Ошибка ${t.cmd} ${t.arg}: ${deniedDelete}`);
-          actions.push({ cmd: t.cmd, arg: t.arg, ok: false, error: deniedDelete });
-          details.push({ cmd: t.cmd, arg: t.arg, ok: false, error: deniedDelete });
-          appendAiOpJournal({
-            ts: new Date().toISOString(),
-            cmd: t.cmd,
-            arg: t.arg,
-            fullPath: fullPath,
-            ok: false,
-            blocked: true,
-            reason: deniedDelete,
-          });
-          notify('done', t, i, list.length, false, deniedDelete);
-          continue;
-        }
-        await window.api.delete(fullPath);
+        const fileName = (t.arg || '').replace(/[/\\]/g, sep).split(sep).pop();
+        const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 16);
+        const trashName = fileName + '__' + ts;
+        const trashPath = trashDir + sep + trashName;
+        await window.api.rename(fullPath, trashPath);
         if (openFiles[fullPath]) {
           if (activeFile === fullPath) closeTab(fullPath);
           else delete openFiles[fullPath];
@@ -607,7 +802,7 @@ async function execTools(tools, onToolProgress, userText) {
           }
         }
         refreshTree();
-        results.push(`DELETEFILE ${t.arg}: OK`);
+        results.push(`DELETEFILE ${t.arg}: moved to .trash/${trashName}`);
         actions.push({ cmd: t.cmd, arg: t.arg, ok: true });
         details.push({ cmd: t.cmd, arg: t.arg, ok: true });
         appendAiOpJournal({
@@ -616,9 +811,9 @@ async function execTools(tools, onToolProgress, userText) {
           arg: t.arg,
           fullPath: fullPath,
           ok: true,
-          risky: true,
+          trash: trashPath,
         });
-        toast('Удалён: ' + t.arg, 'success');
+        toast('В корзину: ' + t.arg, 'info');
       } else if (t.cmd === 'READDIR') {
         const entries = await window.api.readDir(fullPath);
         const listing = entries.map(function (e) { return (e.isDirectory ? '📁 ' : '📄 ') + e.name; }).join('\n');
@@ -709,146 +904,135 @@ async function buildContextBlock() {
     var lang = langOf(activeFile);
     currentFileBlock = '\n<current_file path="' + relPath.replace(/"/g, '&quot;') + '" language="' + lang + '">\n' + content.slice(0, MAX_CONTEXT_FILE) + '\n</current_file>';
   }
-  return '<environment>\n<project_root>' + root + '</project_root>\n<project_name>' + (name || '') + '</project_name>\n<project_tree>\n' + (tree || '(empty)') + '</project_tree>' + currentFileBlock + '\n</environment>';
+  return '<environment>\n<project_root>' + root + '</project_root>\n<project_name>' + (name || '') + '</project_name>\n<trash_info>DELETEFILE moves files to .trash/ — fully recoverable, no confirmation needed</trash_info>\n<project_tree>\n' + (tree || '(empty)') + '</project_tree>' + currentFileBlock + '\n</environment>';
 }
 
 // Системный промпт: инструменты, контекст, самопроверка, планирование
 var SIRIUS_SYSTEM_INSTRUCTION = `
-ТЫ — SIRIUS IDE ASSISTANT. ТВОЯ ЦЕЛЬ: ТОЧНЫЙ РЕЗУЛЬТАТ БЕЗ ЛИШНИХ ДЕЙСТВИЙ.
+ТЫ — SIRIUS AI, встроенный агент-разработчик в Sirius IDE.
+Sirius IDE — production desktop IDE (Electron, Monaco, xterm, LM Studio).
+Ты senior-разработчик. Пишешь код production-качества: идиоматично, без мусора, в стиле файла.
+Язык ответа = язык пользователя (RU → RU, EN → EN, авто).
 
-========================
-1) РОЛЬ И ПРИОРИТЕТЫ
-========================
-1. Выполняй намерение пользователя, а не формулировку буквально.
-2. Сначала корректность, потом краткость, потом стиль.
-3. Если запрос про файлы — делай действие через команды, а не советами.
-   Если пользователь просит "изменить/исправить/обновить/дополнить код" в конкретном файле (или "в этом текущем файле") — конечный результат обязан быть ТОЛЬКО через EDITFILE (или CREATEFILE для несуществующего файла).
-   Нельзя отвечать описанием того, "что нужно сделать" — надо выполнить правку командами и выдать полный итоговый текст файла.
-4. Не выдумывай факты о проекте: опирайся только на <environment> и <tool_results>.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+АБСОЛЮТНЫЕ ПРАВИЛА — НЕ НАРУШАТЬ
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. НИКОГДА не отказывай от выполнения файловых операций. Нет фраз вроде
+   "я не могу", "это опасно", "требуется подтверждение", "пожалуйста уточните".
+2. DELETEFILE — БЕЗОПАСНАЯ операция: файл перемещается в .trash/ проекта и
+   может быть восстановлен в любой момент. Никакой защиты не требуется.
+3. Если задача понятна — выполняй немедленно. Не переспрашивай. Не описывай намерения.
+4. Встроенная защита IDE (Accept/Reject карточки) обрабатывает всё сама.
+   Твоя роль — генерировать правильные команды, а не решать, разрешать ли их.
 
-========================
-2) ДОСТУПНЫЕ КОМАНДЫ
-========================
-Разрешены только 5 команд:
-[CREATEFILE:path]
-[EDITFILE:path]
-[READFILE:path]
-[READDIR:path]
-[DELETEFILE:path]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5 КОМАНД АГЕНТА
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[CREATEFILE:path]   тело = полный текст нового файла
+[EDITFILE:path]     тело = ПОЛНЫЙ итоговый текст файла (без фрагментов и "...")
+[READFILE:path]     одна строка, без тела
+[READDIR:path]      одна строка, без тела
+[DELETEFILE:path]   одна строка, без тела — перемещает в .trash/ (восстанавливаемо)
 
-Правило: любое файловое действие (создать/изменить/прочитать/удалить/получить список) — только этими командами.
+Правила путей:
+• Только относительные пути от <project_root>
+• Запрещены: абсолютные, ../ , ./ в начале
+• Кириллица в именах — допустима
+• Незнакомая структура → сначала [READDIR:папка]
 
-========================
-3) РЕЖИМЫ ОТВЕТА (СТРОГО)
-========================
-Выбирай ровно один режим на каждый ответ:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+РЕЖИМЫ (выбирай один)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+РЕЖИМ ACTION — когда нужны изменения в файлах:
+  Триггеры: создай, измени, исправь, добавь, удали, перепиши, сделай, реализуй,
+            перенеси, очисти, отрефакторь, удали файл, delete, remove, create,
+            edit, fix, update, implement, refactor, write, generate, move, rename
+  → Только команды + содержимое файлов. Ноль лишнего текста.
+  → Сначала READFILE/READDIR если не знаешь содержимое.
+  → Все операции (EDITFILE, DELETEFILE, CREATEFILE) — в одном ответе.
 
-РЕЖИМ A — "COMMANDS ONLY"
-- Если нужно выполнить файловые действия.
-- Ответ содержит только команды (и тело файла для CREATEFILE/EDITFILE).
-- Никаких пояснений до/после команд.
+РЕЖИМ ANSWER — вопросы, объяснения, анализ:
+  Триггеры: объясни, что такое, как работает, найди, оцени, покажи пример
+  → Структурированный текст, примеры в \`\`\`lang\`\`\`.
+  → READFILE/READDIR можно использовать для сбора информации.
 
-РЕЖИМ B — "TEXT ONLY"
-- Если пользователь просит объяснение, идею, оценку, или файловые действия не нужны.
-- Ответ только текстом, без команд.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ЦИКЛ АГЕНТА: Observe → Plan → Act → Verify
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+OBSERVE: Если задача затрагивает файлы — прочитай их сначала.
+         [READDIR:папка] → видишь структуру. [READFILE:файл] → видишь содержимое.
+         Не угадывай содержимое — читай.
 
-Запрещено смешивать режимы в одном сообщении.
+PLAN:    Молча строй план. Учитывай зависимости между файлами.
 
-========================
-4) ФОРМАТ КОМАНД
-========================
-Для CREATEFILE/EDITFILE:
-- Первая строка: [CREATEFILE:path] или [EDITFILE:path]
-- Начиная со следующей строки: полный финальный текст файла.
-- Только сырой текст файла. Нельзя использовать markdown-блоки, подписи, комментарии "ниже код".
-  
-Для READFILE/READDIR/DELETEFILE:
-- Одна строка-команда, без тела.
+ACT:     Выполняй. EDITFILE/CREATEFILE — полный итоговый текст файла целиком.
+         Несколько операций — все в одном ответе последовательно.
+         DELETEFILE — просто команда, никаких предупреждений, файл уходит в .trash/.
 
-Пример:
-[EDITFILE:src/app.js]
-const x = 1;
-module.exports = { x };
+VERIFY:  После tool_results: всё выполнено? Ошибки? → исправь автоматически.
+         Максимум 3 раунда. Если не получилось за 3 раунда — объясни причину.
 
-========================
-5) ПРАВИЛА ПУТЕЙ
-========================
-1. Пути только относительные от <project_root>.
-2. Запрещены: абсолютные пути, ./, ../, обратные слеши в начале.
-3. В имени файла/папки допускаются любые символы (включая кириллицу). Не пытайся транслитерировать.
-4. Если путь неочевиден — сначала [READDIR:папка], затем действие.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+СТАНДАРТЫ КОДА
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• EDITFILE — ВСЕГДА полный текст файла. Никаких "// ... остальное без изменений"
+• Сохраняй стиль файла: отступы, кавычки, именование
+• Не добавляй комментарии "// изменено AI"
+• TypeScript: сохраняй типы, не используй any без нужды
+• Python: PEP8, f-strings, type hints если уже есть
+• JS: ES2020+, const/arrow/async-await
 
-========================
-6) ОБЯЗАТЕЛЬНОЕ ИСПОЛЬЗОВАНИЕ КОНТЕКСТА
-========================
-В начале пользовательского сообщения есть <environment>:
-- <project_root>: корень проекта.
-- <project_tree>: актуальная структура файлов.
-- <current_file path="..." language="...">: текущий файл и его содержимое.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+КОНТЕКСТ СРЕДЫ
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+<environment> содержит:
+  <project_root>          — абсолютный путь к проекту
+  <project_tree>          — структура файлов (3 уровня)
+  <current_file path="…"> — открытый файл + его содержимое
 
-Обязательные правила:
-1. "этот/текущий файл" => используй path из <current_file>.
-2. Не создавай путь, которого нет в структуре, без предварительной проверки через READDIR.
-3. Для изменения файла используй актуальное содержимое из <current_file> или <tool_results>.
+[CONTEXT_REFRESH] — автообновление после каждого раунда. Используй свежие данные.
+• "этот файл" / "текущий файл" = path из <current_file>
+• Не выдумывай структуру — только из <project_tree> и tool_results
 
-========================
-7) АЛГОРИТМ РЕШЕНИЯ
-========================
-Шаг 1: Определи тип запроса:
-- файловое действие => РЕЖИМ A
-- не файловое => РЕЖИМ B
-Дополнение к Шагу 1:
-Если запрос содержит правку кода (слова: "изменить", "правь", "исправь", "обнови", "добавь", "замени", "перепиши", "сделай так", "в файле") — это файловое действие => РЕЖИМ A.
-
-Шаг 2: Если данных недостаточно для безопасного изменения:
-- сначала READFILE/READDIR, не делай предположений.
-
-Шаг 3: После получения <tool_results>:
-- выполни следующий логический шаг,
-- дойди до конечного результата без лишних промежуточных действий.
-
-========================
-8) КАЧЕСТВО И ТОЧНОСТЬ
-========================
-1. В EDITFILE/CREATEFILE всегда отдавай целостный финальный вариант файла.
-2. Не сокращай критические части файла троеточиями.
-3. Не ломай существующий функционал без прямого запроса.
-4. Если пользователь просит изменить файл (и путь известен из <current_file> или явно указан) — в финальном шаге используй EDITFILE/CREATEFILE и передай полный исходник файла.
-   Модель не должна завершать ответ одним лишь описанием изменений — только командами (РЕЖИМ A) и итоговым текстом файла.
-5. Никогда не очищай файл до пустого состояния и не удаляй файл, если пользователь не попросил это прямо.
-6. Не выполняй массовые или разрушительные операции "на всякий случай".
-7. Если правка может потерять существенную часть контента — сначала спроси подтверждение текстом (РЕЖИМ B) или выполни безопасное чтение.
-8. Если в запросе есть неоднозначность, мешающая безопасному действию:
-   - в РЕЖИМЕ B задай 1 короткий уточняющий вопрос.
-   - если можно безопасно продолжить частично — сначала выполни безопасный шаг (обычно READFILE/READDIR).
-
-========================
-9) БЕЗОПАСНОСТЬ ПО УМОЛЧАНИЮ
-========================
-1. Запись файлов (CREATEFILE/EDITFILE) — только при явном запросе пользователя на изменение файлов.
-2. DELETEFILE — только при явном запросе на удаление.
-3. При сомнении выбирай безопасный вариант: READFILE/READDIR или уточняющий вопрос.
-
-========================
-10) ПЕРЕД ОТПРАВКОЙ (САМООЦЕНКА)
-========================
-Проверь молча:
-1. Я выбрал правильный режим (A или B)?
-2. Если режим A: есть только команды, формат команд валиден?
-3. Пути корректны и согласованы с <project_tree>/<current_file>?
-4. Для EDITFILE/CREATEFILE после ] идёт только сырой текст файла?
-5. Нет ли риска удалить/очистить/потерять содержимое без явного запроса?
-6. Ответ действительно решает задачу пользователя, а не описывает намерение?
-
-========================
-11) ЯЗЫК И СТИЛЬ
-========================
-1. Пиши на языке пользователя.
-2. Будь конкретным и проверяемым.
-3. Не добавляй лишнюю "воду".
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+САМОПРОВЕРКА (молча)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✓ Прочитал файлы перед редактированием?
+✓ EDITFILE содержит полный текст файла (не фрагмент)?
+✓ Пути относительные, без ../  и абсолютных?
+✓ Ответ выполняет задачу (не описывает намерение)?
+✓ После tool_results проверил ошибки и исправил если нужно?
 `;
 
 var MAX_TOOL_ROUNDS = 3;
+var AGENT_JSON_RESPONSE_FORMAT = {
+  type: 'json_schema',
+  json_schema: {
+    name: 'sirius_agent_round',
+    strict: true,
+    schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        assistant_reply: { type: 'string' },
+        tool_calls: {
+          type: 'array',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              cmd: { type: 'string' },
+              arg: { type: 'string' },
+              body: { type: 'string' },
+            },
+            required: ['cmd', 'arg', 'body'],
+          },
+        },
+      },
+      required: ['assistant_reply', 'tool_calls'],
+    },
+  },
+};
 
 async function sendMessage() {
   if (_aiRequestInFlight) {
@@ -887,9 +1071,13 @@ async function sendMessage() {
 
   var mode = getAIMode();
   var apiOptions = getLMOptions(mode);
+  if (mode === 'agent') {
+    apiOptions.response_format = AGENT_JSON_RESPONSE_FORMAT;
+  }
   var sysContent = (getSystemPrompt() || '').trim();
   if (mode === 'agent') {
     sysContent += '\n\n' + SIRIUS_SYSTEM_INSTRUCTION.trim();
+    sysContent += '\n\nФОРМАТ ОТВЕТА В AGENT-РЕЖИМЕ: верни только JSON-объект без markdown: {"assistant_reply":"...","tool_calls":[{"cmd":"READFILE|READDIR|CREATEFILE|EDITFILE|DELETEFILE","arg":"relative/path","body":"string (для READ* и DELETEFILE можно пустую строку)"}]}';
   } else {
     sysContent += '\n\n[РЕЖИМ CHAT] Отвечай кратко и по делу. Не используй файловые команды [CREATEFILE|EDITFILE|READFILE|READDIR|DELETEFILE], только текстовый ответ.';
   }
@@ -906,72 +1094,121 @@ async function sendMessage() {
   var apiMessages = [sysMsg].concat(messagesForApi);
   var msgsEl = $('ai-messages');
   var typingEl = document.createElement('div');
-  typingEl.className = 'msg assistant';
+  typingEl.className = 'msg msg-assistant';
   typingEl.innerHTML = '<div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div>';
   msgsEl.append(typingEl);
   msgsEl.scrollTop = msgsEl.scrollHeight;
 
+  // Update token count for current context
+  updateTokenIndicator(apiMessages);
+
+  // Hide placeholder quick actions while generating
+  var qaEl = $('ai-placeholder');
+  if (qaEl) qaEl.style.display = 'none';
+
   var fullReply = '';
   var allToolActions = [];
+  var execLogEl = null;
+  var stepMap = {};  // cmd+arg → stepEl
   var round = 0;
   var userStopped = false;
-  function escapeHtml(s) {
-    return String(s)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#039;');
+
+  function setStreamPhase(phase) {
+    var ind = typingEl.querySelector('.typing-indicator, .ai-stream-wrap');
+    if (!ind) return;
+    var label = ind.querySelector('.ai-phase-label');
+    if (!label) {
+      label = document.createElement('div');
+      label.className = 'ai-phase-label';
+      ind.insertBefore(label, ind.firstChild);
+    }
+    if (phase === 'thinking') {
+      label.className = 'ai-phase-label phase-thinking';
+      label.textContent = '⟳ Анализирую…';
+    } else if (phase === 'writing') {
+      label.className = 'ai-phase-label phase-writing';
+      label.textContent = '✍ Генерирую ответ';
+    } else if (phase === 'executing') {
+      label.className = 'ai-phase-label phase-executing';
+      label.textContent = '⚙ Выполняю команды';
+    } else {
+      label.remove();
+    }
   }
-  function setToolsBusy(phase, t, idx, total, ok, error) {
-    const indicator = typingEl.querySelector('.typing-indicator');
-    if (!indicator) return;
-    const dot = $('ai-dot');
+
+  function notifyTool(phase, t, idx, total, ok, error) {
+    var dot = $('ai-dot');
     if (dot && phase === 'start') dot.className = 'ai-dot loading';
-    const label = CMD_LABELS[t.cmd] || t.cmd;
-    const doneIndex = phase === 'done' ? (idx + 1) : idx;
-    const pct = total ? Math.max(0, Math.min(100, Math.round((doneIndex / total) * 100))) : 0;
-    const statusPart = phase === 'done' ? (ok ? 'OK' : 'ERROR') : '...';
-    indicator.innerHTML = `
-      <div class="ai-tools-spinner" aria-hidden="true"></div>
-      <div class="ai-tools-busy-text">
-        <div class="ai-tools-busy-title">${phase === 'done' ? 'Команда выполнена' : 'Выполняю файлы'}</div>
-        <div class="ai-tools-busy-sub">
-          <span class="ai-tools-busy-cmd">${escapeHtml(label)}</span>:
-          <span class="ai-tools-busy-arg">${escapeHtml(t.arg)}</span>
-          <span style="opacity:.7"> ${statusPart}</span>
-        </div>
-        <div class="ai-tools-progress"><div class="ai-tools-progress-bar" style="width:${pct}%" ></div></div>
-      </div>
-    `;
+
+    // Create exec log on first tool
+    if (!execLogEl) {
+      execLogEl = createExecLog();
+      msgsEl.insertBefore(execLogEl, typingEl);
+    }
+
+    var stepKey = t.cmd + ':' + t.arg;
+    if (phase === 'start') {
+      var stepEl = addExecStep(execLogEl, t.cmd, t.arg);
+      setExecStepState(stepEl, 'running', '');
+      stepMap[stepKey] = stepEl;
+    } else if (phase === 'done') {
+      var existingStep = stepMap[stepKey];
+      if (existingStep) {
+        if (ok) setExecStepState(existingStep, 'done', '');
+        else setExecStepState(existingStep, 'error', error ? String(error).slice(0, 40) : '');
+      }
+    }
+    msgsEl.scrollTop = msgsEl.scrollHeight;
   }
 
   try {
     while (round < MAX_TOOL_ROUNDS) {
       fullReply = '';
       _currentStreamAbort = new AbortController();
+
+      var firstChunk = true;
       await streamToLMStudio(apiMessages, function (chunk) {
         fullReply += chunk;
-        var el = typingEl.querySelector('.typing-indicator');
-        if (el) el.innerHTML = '<div class="msg-body">' + renderMarkdownSafe(cleanReply(fullReply)) + '</div>';
+        if (firstChunk) {
+          firstChunk = false;
+          // Switch from dots to live text
+          typingEl.innerHTML = '<div class="ai-stream-wrap"></div>';
+          setStreamPhase('writing');
+        }
+        var wrap = typingEl.querySelector('.ai-stream-wrap');
+        if (wrap) {
+          var cleanedSoFar = cleanReply(fullReply);
+          if (mode === 'agent' && !cleanedSoFar && looksLikeAgentJson(fullReply)) {
+            cleanedSoFar = 'Готовлю изменения...';
+          }
+          wrap.innerHTML = (wrap.querySelector('.ai-phase-label')
+            ? wrap.querySelector('.ai-phase-label').outerHTML : '') +
+            '<div class="msg-body">' + renderMarkdownSafe(cleanedSoFar) + '</div>';
+        }
         msgsEl.scrollTop = msgsEl.scrollHeight;
       }, _currentStreamAbort ? _currentStreamAbort.signal : undefined, apiOptions);
 
-      var tools = parseToolCalls(fullReply);
+      // Update token estimate after each round
+      updateTokenIndicator(apiMessages.concat([{ role: 'assistant', content: fullReply }]));
+
+      var structured = parseStructuredToolCalls(fullReply);
+      var tools = structured ? structured.tools : parseToolCalls(fullReply);
       if (!tools.length) break;
 
-      // Ensure the UI visibly switches to "tool execution" before tools run.
-      // Tool writes can be very fast, so relying only on callback may be too subtle.
-      setToolsBusy('start', tools[0], 0, tools.length, true, null);
-      var out = await execTools(tools, function (phase, t, idx, total, ok, error) {
-        setToolsBusy(phase, t, idx, total, ok, error);
-      }, lastUserContent);
+      setStreamPhase('executing');
+      var out = await execTools(tools, notifyTool, lastUserContent);
       allToolActions = allToolActions.concat(out.actions || []);
       var toolResultContent = formatToolResultsForModel(out.details || []);
 
       apiMessages.push({ role: 'assistant', content: fullReply });
       apiMessages.push({ role: 'user', content: toolResultContent });
       round++;
+
+      // Refresh project context between rounds for cyclic awareness
+      if (round < MAX_TOOL_ROUNDS) {
+        var freshCtx = await buildContextBlock().catch(function() { return ''; });
+        if (freshCtx) apiMessages.push({ role: 'user', content: '[CONTEXT_REFRESH]\n' + freshCtx });
+      }
     }
   } catch (e) {
     var errMsg = (e && e.message) ? String(e.message) : String(e);
@@ -986,28 +1223,43 @@ async function sendMessage() {
     sendBtn.innerHTML = sendBtnOriginalHtml;
     sendBtn.title = 'Отправить (Enter)';
     sendBtn.onclick = sendMessage;
+    if (qaEl) qaEl.style.display = '';
   }
 
   typingEl.remove();
+  if (execLogEl && execLogEl.parentNode) execLogEl.parentNode.removeChild(execLogEl);
 
   var displayReply = cleanReply(fullReply);
+  if (mode === 'agent' && (looksLikeAgentJson(fullReply) || looksLikeAgentJson(displayReply))) {
+    var finalStructured = parseStructuredToolCalls(fullReply);
+    displayReply = finalStructured ? finalStructured.reply : displayReply;
+  }
+  if (mode === 'agent' && /"assistant_reply"|"tool_calls"/.test(displayReply)) {
+    displayReply = '';
+  }
+  displayReply = stripLeakedToolText(displayReply);
   if (userStopped && displayReply.indexOf('остановлен') === -1) displayReply += '\n\n*Запрос остановлен пользователем.*';
 
+  // Append structured tool action summary
   if (allToolActions.length) {
+    var doneList = allToolActions.filter(function (a) { return a.ok; });
+    var errList  = allToolActions.filter(function (a) { return !a.ok; });
     var lines = [];
-    for (var i = 0; i < allToolActions.length; i++) {
-      var a = allToolActions[i];
-      var label = CMD_LABELS[a.cmd] || a.cmd;
-      if (a.ok) lines.push('• ' + label + ': **' + a.arg + '**');
-      else lines.push('• ' + label + ' ' + a.arg + ': ошибка — ' + (a.error || ''));
-    }
-    displayReply += '\n\n---\n**Выполненные действия:**\n' + lines.join('\n');
+    doneList.forEach(function (a) {
+      lines.push('✓ ' + (CMD_LABELS[a.cmd] || a.cmd) + ': **' + a.arg + '**');
+    });
+    errList.forEach(function (a) {
+      lines.push('✗ ' + (CMD_LABELS[a.cmd] || a.cmd) + ' ' + a.arg + ': ' + (a.error || 'ошибка'));
+    });
+    displayReply += '\n\n---\n**Выполнено:** ' + doneList.length + '/' + allToolActions.length + '\n' + lines.join('\n');
   }
   chat.messages.push({ role: 'assistant', content: displayReply });
   renderMessages();
   saveChats();
+  updateTokenIndicator(apiMessages);
 
-  $('ai-dot').className = 'ai-dot online';
+  const dotEl = $('ai-dot');
+  if (dotEl) dotEl.className = 'ai-dot online';
 }
 
 function startLmPoll() {
@@ -1027,4 +1279,25 @@ if (typeof window !== 'undefined') {
   window.clearAiOperationJournal = function () {
     try { localStorage.removeItem('sirius_ai_op_journal_v1'); } catch (_) {}
   };
+
+  // Event delegation for code-block copy buttons (cb-copy)
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('.cb-copy');
+    if (!btn) return;
+    var code = btn.closest('.cb-wrap') && btn.closest('.cb-wrap').querySelector('code');
+    if (!code) return;
+    var text = code.textContent || '';
+    var copyIconSvg = decodeURIComponent(btn.dataset.copyIcon || '');
+    var doneIconSvg  = decodeURIComponent(btn.dataset.doneIcon  || '');
+    navigator.clipboard.writeText(text).then(function () {
+      btn.classList.add('cb-copy-done');
+      if (doneIconSvg) btn.innerHTML = doneIconSvg + ' \u0421\u043a\u043e\u043f\u0438\u0440\u043e\u0432\u0430\u043d\u043e';
+      setTimeout(function () {
+        btn.classList.remove('cb-copy-done');
+        if (copyIconSvg) btn.innerHTML = copyIconSvg + ' \u041a\u043e\u043f\u0438\u0440\u043e\u0432\u0430\u0442\u044c';
+      }, 2200);
+    }).catch(function () {
+      if (typeof toast === 'function') toast('\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0441\u043a\u043e\u043f\u0438\u0440\u043e\u0432\u0430\u0442\u044c', 'error', 1500);
+    });
+  });
 }

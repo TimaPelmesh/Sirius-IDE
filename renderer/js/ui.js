@@ -20,8 +20,8 @@ function setBreadcrumb(filePath) {
       span.textContent = String(p);
       bar.append(span);
       const sep = document.createElement('span');
-      sep.style.opacity = '.4';
-      sep.textContent = ' / ';
+      sep.className = 'bc-sep';
+      sep.innerHTML = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>';
       bar.append(sep);
     }
   }
@@ -134,8 +134,6 @@ function rebuildMenus() {
       { label: tr('menuItem.saveAll'),     kbd: 'Ctrl+Shift+S', action: 'save-all' },
       { sep: true },
       { label: tr('menuItem.closeTab'),    kbd: 'Ctrl+W', action: 'close-tab' },
-      { sep: true },
-      { label: tr('menuItem.newWindow'),   kbd: 'Ctrl+Shift+N', action: 'new-window' },
     ],
     edit: [
       { label: tr('menuItem.undo'),        kbd: 'Ctrl+Z',  action: 'undo' },
@@ -164,8 +162,6 @@ function rebuildMenus() {
       { label: tr('menuItem.terminal'),    kbd: 'Ctrl+`',       action: 'view-terminal' },
     ],
     window: [
-      { label: tr('menuItem.newWindow'),   kbd: 'Ctrl+Shift+N', action: 'new-window' },
-      { sep: true },
       { label: tr('menuItem.minimize'),    kbd: '',             action: 'win-minimize' },
       { label: tr('menuItem.maximize'),    kbd: '',             action: 'win-maximize' },
       { sep: true },
@@ -427,6 +423,7 @@ function openSettingsScreen() {
   const el = $('settings-screen');
   if (!el) return;
   el.hidden = false;
+  document.dispatchEvent(new CustomEvent('sirius:settings-open'));
 }
 
 function closeSettingsScreen() {
