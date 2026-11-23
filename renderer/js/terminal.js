@@ -16,31 +16,31 @@ function isLightTheme() {
 function getTerminalTheme() {
   if (isLightTheme()) {
     return {
-      background: '#f9fafb',
-      foreground: '#111827',
-      cursor: '#4F46E5',
-      cursorAccent: '#f9fafb',
-      selectionBackground: 'rgba(79,70,229,.2)',
-      black: '#374151', red: '#dc2626', green: '#059669',
-      yellow: '#d97706', blue: '#4F46E5', magenta: '#7c3aed',
-      cyan: '#0891b2', white: '#111827',
-      brightBlack: '#6b7280', brightRed: '#ef4444', brightGreen: '#10b981',
-      brightYellow: '#f59e0b', brightBlue: '#6366f1', brightMagenta: '#8b5cf6',
-      brightCyan: '#06b6d4', brightWhite: '#1f2937',
+      background: '#f4f5f7',
+      foreground: '#1a1d24',
+      cursor: '#4a6d8c',
+      cursorAccent: '#f4f5f7',
+      selectionBackground: 'rgba(74,109,140,.22)',
+      black: '#3a3f4b', red: '#c44b4b', green: '#3d8f5f',
+      yellow: '#a07a20', blue: '#4a6d8c', magenta: '#7a5f8c',
+      cyan: '#3a7a8c', white: '#1a1d24',
+      brightBlack: '#6b7280', brightRed: '#d35f5f', brightGreen: '#5faf7a',
+      brightYellow: '#c9a227', brightBlue: '#6a8eae', brightMagenta: '#9a7aac',
+      brightCyan: '#5a9aab', brightWhite: '#12141a',
     };
   }
   return {
-    background: '#0e0e10',
-    foreground: '#d4d4de',
-    cursor: '#5c9cf5',
-    cursorAccent: '#0e0e10',
-    selectionBackground: 'rgba(92,156,245,.3)',
-    black: '#2a2a36', red: '#f27171', green: '#7be0a8',
-    yellow: '#f2c46d', blue: '#5c9cf5', magenta: '#c792ea',
-    cyan: '#89ddff', white: '#d4d4de',
-    brightBlack: '#565676', brightRed: '#ff7b7b', brightGreen: '#9effc6',
-    brightYellow: '#ffd97d', brightBlue: '#82b1ff', brightMagenta: '#e2adff',
-    brightCyan: '#9effff', brightWhite: '#ffffff',
+    background: '#0e1014',
+    foreground: '#d7dbe2',
+    cursor: '#9bb4c9',
+    cursorAccent: '#0e1014',
+    selectionBackground: 'rgba(155,180,201,.28)',
+    black: '#2a2e38', red: '#d35f5f', green: '#5faf7a',
+    yellow: '#c9a227', blue: '#9bb4c9', magenta: '#a890b8',
+    cyan: '#7eb8c9', white: '#d7dbe2',
+    brightBlack: '#5c6370', brightRed: '#e07070', brightGreen: '#74c090',
+    brightYellow: '#d4b84a', brightBlue: '#b4c9da', brightMagenta: '#b8a0c8',
+    brightCyan: '#9bc8d4', brightWhite: '#e8eef3',
   };
 }
 
@@ -102,9 +102,9 @@ async function createTerminalTab() {
 
   const xterm = new window.Terminal({
     theme: getTerminalTheme(),
-    fontFamily: "'Cascadia Code','Fira Code',Consolas,monospace",
-    fontSize: 13,
-    lineHeight: 1.4,
+    fontFamily: "'JetBrains Mono','Cascadia Code','Fira Code',Consolas,monospace",
+    fontSize: 12.5,
+    lineHeight: 1.45,
     cursorBlink: true,
     allowTransparency: false,
     convertEol: true,
@@ -130,10 +130,47 @@ async function createTerminalTab() {
     });
   } else {
     xterm.writeln('\r\x1b[33mТерминал недоступен — пересоберите node-pty:\x1b[0m');
-    xterm.writeln('\r  npm run postinstall');
+    xterm.writeln('\r  npm run rebuild:native');
   }
 
-  termInstances.set(id, { xterm, fitAddon, backendId, el, name, cleanupListener });
+  async function pasteIntoTerm() {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (!text) return;
+      if (backendId) await window.api.terminalWrite(backendId, text);
+      else xterm.write(text);
+    } catch (_) {
+      if (typeof toast === 'function') toast('Не удалось прочитать буфер обмена', 'error', 2000);
+    }
+  }
+
+  // Ctrl+V / Shift+Insert paste into shell
+  xterm.attachCustomKeyEventHandler((ev) => {
+    if (ev.type !== 'keydown') return true;
+    const pasteKey = (ev.ctrlKey && (ev.key === 'v' || ev.key === 'V')) ||
+      (ev.shiftKey && ev.key === 'Insert');
+    if (pasteKey) {
+      pasteIntoTerm();
+      return false;
+    }
+    return true;
+  });
+
+  el.addEventListener('paste', (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    const text = ev.clipboardData && ev.clipboardData.getData('text');
+    if (!text) return;
+    if (backendId) window.api.terminalWrite(backendId, text);
+    else xterm.write(text);
+  });
+
+  el.addEventListener('contextmenu', (ev) => {
+    ev.preventDefault();
+    pasteIntoTerm();
+  });
+
+  termInstances.set(id, { xterm, fitAddon, backendId, el, name, cleanupListener, pasteIntoTerm });
 
   switchTerminalTab(id);
   setTimeout(() => { fitAddon.fit(); xterm.focus(); }, 80);

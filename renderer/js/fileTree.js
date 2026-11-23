@@ -449,9 +449,22 @@ async function cutSelectionToClipboard() {
 function getPasteTargetDir() {
   const sel = getSelectedTreePaths();
   const first = sel[0];
-  if (first) return first.replace(/[\\/][^\\/]+$/, '');
-  if (activeFile) return activeFile.replace(/[\\/][^\\/]+$/, '');
+  if (first) {
+    const el = document.querySelector(`.tree-item[data-path="${CSS.escape(first)}"]`);
+    if (el && el.dataset.isdir === '1') return first; // paste into selected folder
+    return first.replace(/[\\/][^\\/]+$/, '') || projectRoot || '';
+  }
+  if (activeFile) return activeFile.replace(/[\\/][^\\/]+$/, '') || projectRoot || '';
   return projectRoot || '';
+}
+
+function pathsNestOrEqual(a, b) {
+  const sep = '\\';
+  const norm = (p) => String(p || '').replace(/\//g, sep).replace(/[\\/]+$/, '').toLowerCase();
+  const x = norm(a);
+  const y = norm(b);
+  if (!x || !y) return false;
+  return x === y || x.startsWith(y + sep) || y.startsWith(x + sep);
 }
 
 async function deleteSelectionOrActive() {
@@ -508,6 +521,7 @@ async function getUniqueDestPath(targetDir, baseName) {
 
 async function clipboardPaste(targetDir) {
   if (!_clipboard) { UX.info('Буфер обмена пуст'); return; }
+  if (!targetDir) { UX.info('Некуда вставлять — открой проект'); return; }
   const clip = _clipboard;
   const items = clip.items || [{ path: clip.path, isDir: clip.isDir, name: clip.name }];
   const sep = projectRoot && projectRoot.indexOf('/') !== -1 ? '/' : '\\';
@@ -522,24 +536,39 @@ async function clipboardPaste(targetDir) {
     const movedPairs = [];
     if (clip.op === 'copy') {
       for (const it of items) {
-        const newPath = await getUniqueDestPath(targetDir, it.name);
+        const baseName = (it.name && String(it.name).trim()) || it.path.replace(/^.*[\\/]/, '') || 'copy';
+        if (it.isDir && pathsNestOrEqual(targetDir, it.path)) {
+          UX.error('Нельзя вставить папку внутрь самой себя');
+          continue;
+        }
+        const newPath = await getUniqueDestPath(targetDir, baseName);
+        if (it.isDir && pathsNestOrEqual(newPath, it.path)) {
+          UX.error('Нельзя скопировать папку в свою подпапку');
+          continue;
+        }
         await window.api.copyPath(it.path, newPath);
         createdPaths.push(newPath);
       }
+      if (!createdPaths.length) return;
       if (!_isUndoingExplorer && createdPaths.length) pushExplorerUndo({ type: 'create-many', paths: createdPaths });
-      UX.success(items.length > 1 ? `Вставлено копий: ${items.length}` : `Вставлено (копия): ${items[0].name}`);
+      UX.success(createdPaths.length > 1 ? `Вставлено копий: ${createdPaths.length}` : `Вставлено (копия): ${createdPaths[0].replace(/^.*[\\/]/, '')}`);
     } else {
       document.querySelectorAll('.tree-item.clipboard-cut')
         .forEach(el => el.classList.remove('clipboard-cut'));
       for (const it of items) {
-        const newPath = dirNorm + it.name;
+        const baseName = (it.name && String(it.name).trim()) || it.path.replace(/^.*[\\/]/, '') || 'item';
+        if (it.isDir && pathsNestOrEqual(targetDir, it.path)) {
+          UX.error('Нельзя переместить папку внутрь самой себя');
+          continue;
+        }
+        const newPath = dirNorm + baseName;
         if (newPath !== it.path) {
           await doMove(it.path, newPath);
           movedPairs.push({ from: it.path, to: newPath });
         }
       }
       if (!_isUndoingExplorer && movedPairs.length) pushExplorerUndo({ type: 'move-many', items: movedPairs });
-      UX.success(items.length > 1 ? `Перемещено: ${items.length}` : `Вставлено (перемещение): ${items[0].name}`);
+      if (movedPairs.length) UX.success(movedPairs.length > 1 ? `Перемещено: ${movedPairs.length}` : `Вставлено (перемещение): ${movedPairs[0].to.replace(/^.*[\\/]/, '')}`);
       _clipboard = null;
     }
     await refreshTree();
@@ -619,6 +648,7 @@ async function refreshTreeNow(dir, container, depth, generation) {
           await refreshTreeNow(e.path, children, depth + 1, generation);
         }
         item.querySelector('.tree-chv').classList.toggle('open', !wasOpen);
+        if (typeof saveState === 'function') saveState();
       });
     } else {
       item.innerHTML = `${getFileIcon(e.name, false)}<span class="name">${escapeHtml(e.name)}</span>`;

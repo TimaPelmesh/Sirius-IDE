@@ -14,17 +14,21 @@ window.addEventListener('DOMContentLoaded', async () => {
     sp.style.pointerEvents = 'none';   // never block clicks regardless of path
     if (animate !== false) sp.classList.add('splash-exit');
     else { sp.style.opacity = '0'; sp.style.transition = 'opacity .5s'; }
+    try { localStorage.setItem('nb_splash_seen', '1'); } catch (_) {}
     setTimeout(() => {
       if (sp.parentNode) sp.parentNode.removeChild(sp);
       if (ly) ly.classList.remove('app-fade-in');
-    }, 600);
+    }, 400);
   }
-  // Skip splash immediately if disabled in settings
-  if (localStorage.getItem('nb_splash_off') === '1') {
+  function _shouldSkipSplash() {
+    return localStorage.getItem('nb_splash_off') === '1';
+  }
+  // Skip only if user disabled splash in settings
+  if (_shouldSkipSplash()) {
     _killSplash(false);
   }
-  // Absolute guarantee: always closes within 13 seconds
-  setTimeout(() => _killSplash(false), 13000);
+  // Absolute guarantee: always closes within 2.5s
+  setTimeout(() => _killSplash(true), 2500);
 
   applyTheme(currentTheme);
   if (window.api?._fallback) {
@@ -35,6 +39,20 @@ window.addEventListener('DOMContentLoaded', async () => {
   loadChats();
   renderChatTabs();
   renderMessages();
+  if (typeof renderAgentSessionBar === 'function') renderAgentSessionBar();
+  if (typeof hydrateApiKeyFromVault === 'function') {
+    hydrateApiKeyFromVault().then(function () {
+      try {
+        if (typeof applyProviderSelectUi === 'function' && typeof getLLMSettings === 'function') {
+          applyProviderSelectUi(getLLMSettings());
+        }
+      } catch (_) {}
+    }).catch(function () {});
+  }
+  const btnClearGoal = $('btn-clear-agent-goal');
+  if (btnClearGoal) btnClearGoal.onclick = function () {
+    if (typeof clearAgentGoal === 'function') clearAgentGoal();
+  };
 
   $('view-files').classList.add('active');
   $('ai-panel').classList.remove('hidden');
@@ -69,6 +87,14 @@ window.addEventListener('DOMContentLoaded', async () => {
     const inst = termInstances.get(activeTermId);
     if (inst) inst.xterm.clear();
   };
+  const btnPasteTerm = $('btn-paste-term');
+  if (btnPasteTerm) {
+    btnPasteTerm.onclick = () => {
+      const inst = termInstances.get(activeTermId);
+      if (inst && typeof inst.pasteIntoTerm === 'function') inst.pasteIntoTerm();
+      else if (typeof toast === 'function') toast('Открой терминал', 'info', 1500);
+    };
+  }
   $('btn-close-term').onclick = () => $('term-panel').classList.remove('open');
 
   $('btn-open-folder').onclick = openFolder;
@@ -115,6 +141,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     splashChk.checked = localStorage.getItem('nb_splash_off') !== '1';
     splashChk.addEventListener('change', () => {
       localStorage.setItem('nb_splash_off', splashChk.checked ? '0' : '1');
+      if (splashChk.checked) try { localStorage.removeItem('nb_splash_seen'); } catch (_) {}
     });
   }
 
@@ -134,6 +161,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     localStorage.removeItem('nb_lang');
     localStorage.removeItem('nb_editor_theme');
     localStorage.removeItem('nb_splash_off');
+    try { localStorage.removeItem('nb_splash_seen'); } catch (_) {}
     var langSel = $('settings-ui-language');
     if (langSel) langSel.value = 'ru';
     var syntaxSel = $('settings-syntax-theme');
@@ -171,8 +199,13 @@ window.addEventListener('DOMContentLoaded', async () => {
   const closeSettingsBtn = $('btn-close-settings');
   if (closeSettingsBtn) closeSettingsBtn.onclick = () => activateView('settings');
   if (settingsScreen) {
+    const card = settingsScreen.querySelector('.settings-card');
+    if (card) {
+      card.addEventListener('click', (e) => e.stopPropagation());
+      card.addEventListener('mousedown', (e) => e.stopPropagation());
+    }
+    // Backdrop click closes; clicks inside the card never collapse mid-edit
     settingsScreen.addEventListener('click', (e) => {
-      // Click outside the card closes the settings screen.
       if (e.target === settingsScreen) activateView('settings');
     });
   }
@@ -275,93 +308,11 @@ window.addEventListener('DOMContentLoaded', async () => {
 
   startLmPoll();
 
-  // ── Cosmic splash: fully JS-driven sequence ──────────────────
-  // ALL timing starts from here (DOMContentLoaded), not from page parse.
-  // This ensures explosion never fires before stars gather, regardless of load speed.
-  try {
-    const splash = document.getElementById('splash');
-    if (splash && localStorage.getItem('nb_splash_off') !== '1') {
-      const W = window.innerWidth, H = window.innerHeight;
-      const cx = W / 2, cy = H / 2;
-      const maxDim = Math.max(W, H);
-      const starColors = ['#fff','#fff','#fff','#e0d7ff','#c4b5fd','#a5b4fc','#818cf8'];
-      const stars = [];
-
-      // ── Phase 1 (t=0): generate + appear ──
-      for (let i = 0; i < 120; i++) {
-        const s = document.createElement('div');
-        s.className = 'sp-star';
-        const sx = Math.random() * W;
-        const sy = Math.random() * H;
-        const size = 0.5 + Math.random() * 2.5;
-        const op = 0.15 + Math.random() * 0.75;
-        const color = starColors[Math.floor(Math.random() * starColors.length)];
-        const gx = cx - sx, gy = cy - sy;
-        s.style.cssText = [
-          'left:' + sx + 'px', 'top:' + sy + 'px',
-          'width:' + size + 'px', 'height:' + size + 'px',
-          'background:' + color,
-          '--op:' + op,
-          '--gx:' + gx.toFixed(1) + 'px',
-          '--gy:' + gy.toFixed(1) + 'px',
-          'animation:sp-appear .4s ' + (Math.random() * 0.45).toFixed(2) + 's ease both',
-          'opacity:0',
-        ].join(';');
-        splash.appendChild(s);
-        stars.push(s);
-      }
-
-      // ── Phase 2 (t=600ms): start gather ──
-      // dur: 0.5-0.95s  del: 0-0.08s  → all done by 600+80+950 = 1630ms
-      const T_GATHER = 600;
-      setTimeout(() => {
-        if (!document.getElementById('splash')) return;
-        stars.forEach(s => {
-          const dist = Math.hypot(
-            parseFloat(s.style.getPropertyValue('--gx') || '0'),
-            parseFloat(s.style.getPropertyValue('--gy') || '0')
-          );
-          const dur = (0.50 + (dist / maxDim) * 0.45).toFixed(2);
-          const del = (Math.random() * 0.08).toFixed(2);
-          s.style.animation = 'sp-gather ' + dur + 's ' + del + 's cubic-bezier(.35,0,.9,1) forwards';
-        });
-      }, T_GATHER);
-
-      // ── Phase 3 (t=1750ms): explosion ── (100ms margin after last star arrives)
-      const T_EXPLODE = 1750;
-      setTimeout(() => {
-        if (!document.getElementById('splash')) return;
-        splash.classList.add('do-explode');
-      }, T_EXPLODE);
-
-      // ── Phase 4 (t=2500ms): show title ──
-      const T_TITLE = 2500;
-      setTimeout(() => {
-        if (!document.getElementById('splash')) return;
-        splash.classList.add('do-title');
-      }, T_TITLE);
-
-      // ── Phase 5 (t=3200ms): show loading indicator ──
-      const T_LOADING = 3200;
-      setTimeout(() => {
-        if (!document.getElementById('splash')) return;
-        splash.classList.add('do-loading');
-      }, T_LOADING);
-    }
-  } catch (_e) { /* stars are cosmetic — never block init */ }
-
-  // ── Splash loading messages ────────────────────────────────
-  const SPLASH_MSGS = [
-    'Инициализация редактора…',
-    'Загружаем Monaco Engine…',
-    'Настраиваем подсветку синтаксиса…',
-    'Подключаем AI-инструменты…',
-    'Восстанавливаем рабочую область…',
-    'Почти готово…',
-  ];
+  // ── Splash status line (short cycle) ───────────────────────
+  const SPLASH_MSGS = ['Инициализация…', 'Загрузка редактора…', 'Готово…'];
   (() => {
     const msgEl = document.getElementById('splash-msg');
-    if (!msgEl) return;
+    if (!msgEl || _shouldSkipSplash()) return;
     let idx = 0;
     const iv = setInterval(() => {
       idx++;
@@ -370,20 +321,21 @@ window.addEventListener('DOMContentLoaded', async () => {
       setTimeout(() => {
         msgEl.textContent = SPLASH_MSGS[idx];
         msgEl.style.opacity = '1';
-      }, 250);
-    }, 1200);
+      }, 120);
+    }, 450);
   })();
 
-  // ── Early dismiss helper (after min animation play time) ──
   const _splashStart = Date.now();
+  const SPLASH_MAX_MS = 1600;
   function dismissSplash() {
-    // Immediately unblock all clicks — splash is now purely decorative
     const sp = document.getElementById('splash');
     if (sp) sp.style.pointerEvents = 'none';
+    if (_shouldSkipSplash()) {
+      _killSplash(false);
+      return;
+    }
     const elapsed = Date.now() - _splashStart;
-    // Full sequence ends at 3.2s (loading appears) + 0.45s anim + 1.1s read = ~4.8s
-    const minMs = localStorage.getItem('nb_splash_off') === '1' ? 400 : 4800;
-    const wait = Math.max(0, minMs - elapsed);
+    const wait = Math.max(0, SPLASH_MAX_MS - elapsed);
     setTimeout(_killSplash, wait);
   }
 
@@ -397,12 +349,19 @@ window.addEventListener('DOMContentLoaded', async () => {
       applyEditorTheme(typeof getEditorThemeId === 'function' ? getEditorThemeId() : 'classic');
     }
     detectRunCommand();
+    if (typeof tryRestoreAgentSessionFromProject === 'function') {
+      tryRestoreAgentSessionFromProject().catch(function () {});
+    }
   }).catch(err => {
     console.error('Monaco failed to load:', err);
     dismissSplash();                 // dismiss even on failure
     toast('Редактор не загрузился. Открываю консоль разработчика — смотрите вкладки Console и Network.', 'error', 10000);
     if (window.api?.openDevTools) window.api.openDevTools();
-    restoreState().catch(() => {});
+    restoreState().catch(() => {}).then(function () {
+      if (typeof tryRestoreAgentSessionFromProject === 'function') {
+        return tryRestoreAgentSessionFromProject();
+      }
+    }).catch(function () {});
   });
 
   window.addEventListener('beforeunload', () => saveState());

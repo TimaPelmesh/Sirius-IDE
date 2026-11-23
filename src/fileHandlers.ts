@@ -159,7 +159,13 @@ export const fileHandlers = {
     assertSafePathInput(destPath);
     validatePath(srcPath);
     validatePath(destPath);
-    await fs.copy(srcPath, destPath, { overwrite: false, errorOnExist: true });
+    const src = path.resolve(srcPath);
+    const dest = path.resolve(destPath);
+    const rel = path.relative(src, dest);
+    if (rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))) {
+      throw new Error('Нельзя копировать папку внутрь самой себя');
+    }
+    await fs.copy(src, dest, { overwrite: false, errorOnExist: true });
   },
 
   // ── Persistent state backup (survives localStorage wipe) ─────

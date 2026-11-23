@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" role="img" aria-label="Sirius">
+  <!-- Plate -->
+  <rect width="64" height="64" rx="14" fill="#16181e"/>
+  <rect x="0.75" y="0.75" width="62.5" height="62.5" rx="13.25" stroke="#2a2e38" stroke-width="1.5"/>
+  <!-- Outer diamond -->
+  <path d="M32 8 L56 32 L32 56 L8 32 Z" stroke="#5f7388" stroke-width="1.25" fill="none"/>
+  <!-- Mid diamond -->
+  <path d="M32 16 L48 32 L32 48 L16 32 Z" stroke="#9bb4c9" stroke-width="1.25" fill="none"/>
+  <!-- Core -->
+  <path d="M32 24 L40 32 L32 40 L24 32 Z" fill="#d7e2ea"/>
+  <!-- Crosshair -->
+  <path d="M32 11 V17.5 M32 46.5 V53 M11 32 H17.5 M46.5 32 H53"
+        stroke="#9bb4c9" stroke-width="1.25" stroke-linecap="square"/>
+</svg>

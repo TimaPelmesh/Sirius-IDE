@@ -19,4 +19,12 @@ const UX = {
     if (typeof onFail === 'function') onFail();
     return false;
   },
+  /** Apply a one-shot enter animation class (CSS: @keyframes ux-fade-up). */
+  enter: function (el, className) {
+    if (!el) return;
+    const cls = className || 'ux-enter';
+    el.classList.remove(cls);
+    void el.offsetWidth;
+    el.classList.add(cls);
+  },
 };

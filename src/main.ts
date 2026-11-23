@@ -8,16 +8,153 @@ import { spawn } from 'child_process';
 import { fileHandlers } from './fileHandlers';
 import { addAllowedRoot, validatePath } from './pathValidator';
 import * as terminalHandler from './terminalHandler';
+import * as secretsVault from './secretsVault';
 import simpleGit from 'simple-git';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const chokidar = require('chokidar');
 
-const LM_STUDIO_URL = 'http://127.0.0.1:1234/v1';
+const DEFAULT_LM_STUDIO_URL = 'http://127.0.0.1:1234/v1';
 const ABORT_MESSAGE = 'Запрос остановлен';
 
+type LLMModelsRequest = {
+  baseUrl?: string;
+  apiKey?: string;
+  providerId?: string;
+};
+
+type LLMStreamOptions = {
+  baseUrl?: string;
+  apiKey?: string;
+  model?: string;
+  temperature?: number;
+  max_tokens?: number;
+  top_p?: number;
+  seed?: number;
+  response_format?: unknown;
+};
+
 let mainWindow: BrowserWindow | null = null;
-let lmStudioAbortController: AbortController | null = null;
+let llmAbortController: AbortController | null = null;
+
+function normalizeV1Base(url: string | undefined): string {
+  const t = (url || '').trim();
+  if (!t) return DEFAULT_LM_STUDIO_URL;
+  return t.replace(/\/+$/, '');
+}
+
+function llmAuthHeaders(apiKey?: string): Record<string, string> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const key = (apiKey || '').trim();
+  if (key) headers.Authorization = `Bearer ${key}`;
+  return headers;
+}
+
+function hostFromV1Base(baseUrl: string): string | null {
+  try {
+    const u = new URL(baseUrl.includes('://') ? baseUrl : `http://${baseUrl}`);
+    return `${u.protocol}//${u.host}`;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchOpenAiCompatibleModels(baseUrl: string, apiKey?: string) {
+  const r = await fetch(`${normalizeV1Base(baseUrl)}/models`, { headers: llmAuthHeaders(apiKey) });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
+}
+
+async function fetchOllamaTagsMapped(baseUrl: string) {
+  const host = hostFromV1Base(normalizeV1Base(baseUrl));
+  if (!host) return null;
+  const r = await fetch(`${host}/api/tags`);
+  if (!r.ok) return null;
+  const j = (await r.json()) as { models?: Array<{ name?: string; model?: string }> };
+  const list = (j.models || [])
+    .map((m) => ({ id: (m.name || m.model || '').trim() }))
+    .filter((x) => x.id);
+  return { data: list, object: 'list' };
+}
+
+async function resolveLLMModels(req: LLMModelsRequest) {
+  const baseUrl = normalizeV1Base(req.baseUrl);
+  const providerId = (req.providerId || '').trim();
+  try {
+    return await fetchOpenAiCompatibleModels(baseUrl, req.apiKey);
+  } catch (_) {
+    if (providerId === 'ollama' || baseUrl.includes(':11434')) {
+      return await fetchOllamaTagsMapped(baseUrl);
+    }
+    return null;
+  }
+}
+
+function abortLlmStream() {
+  if (llmAbortController) {
+    llmAbortController.abort();
+    llmAbortController = null;
+  }
+}
+
+async function proxyLlmChatStream(
+  win: BrowserWindow,
+  messages: unknown[],
+  opts: LLMStreamOptions,
+  channels: { chunk: string; end: string; error: string },
+) {
+  const baseUrl = normalizeV1Base(opts.baseUrl);
+  const temperature = typeof opts.temperature === 'number' ? opts.temperature : 0.2;
+  const max_tokens = typeof opts.max_tokens === 'number' ? opts.max_tokens : 16384;
+  const body: Record<string, unknown> = {
+    model: typeof opts.model === 'string' ? opts.model : '',
+    messages,
+    stream: true,
+    temperature,
+    max_tokens,
+  };
+  if (typeof opts.top_p === 'number') body.top_p = opts.top_p;
+  if (typeof opts.seed === 'number') body.seed = opts.seed;
+  if (opts.response_format && typeof opts.response_format === 'object') body.response_format = opts.response_format;
+
+  llmAbortController = new AbortController();
+  const signal = llmAbortController.signal;
+  try {
+    const resp = await fetch(`${baseUrl}/chat/completions`, {
+      signal,
+      method: 'POST',
+      headers: llmAuthHeaders(opts.apiKey),
+      body: JSON.stringify(body),
+    });
+    llmAbortController = null;
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    if (!resp.body) throw new Error('No response body');
+    const reader = resp.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop() ?? '';
+      for (const line of lines) {
+        if (!line.startsWith('data: ') || line === 'data: [DONE]') continue;
+        try {
+          const j = JSON.parse(line.slice(6)) as { choices?: Array<{ delta?: { content?: string } }> };
+          const delta = j.choices?.[0]?.delta?.content;
+          if (delta) win.webContents.send(channels.chunk, delta);
+        } catch (_) {}
+      }
+    }
+    win.webContents.send(channels.end);
+  } catch (e) {
+    llmAbortController = null;
+    const err = e as Error;
+    const msg = err.name === 'AbortError' ? ABORT_MESSAGE : (err?.message ?? String(e));
+    win.webContents.send(channels.error, msg);
+  }
+}
 let fsWatcher: ReturnType<typeof chokidar.watch> | null = null;
 let rendererBaseUrl: string = '';
 
@@ -31,12 +168,31 @@ const MIME: Record<string, string> = {
   '.json': 'application/json',
   '.ico': 'image/x-icon',
   '.svg': 'image/svg+xml',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.png': 'image/png',
   '.woff': 'font/woff',
   '.woff2': 'font/woff2',
   '.ttf': 'font/ttf',
   '.eot': 'application/vnd.ms-fontobject',
   '.map': 'application/json',
 };
+
+function isAllowedStaticPath(relativePosix: string): boolean {
+  const p = relativePosix.replace(/^\/+/, '');
+  if (!p || p.includes('\0')) return false;
+  if (p === 'icon.ico') return true;
+  if (p === 'renderer' || p.startsWith('renderer/')) return true;
+  // Vendored assets used by the renderer (Monaco, xterm, prism, purify)
+  const allowedNm = [
+    'node_modules/monaco-editor/',
+    'node_modules/xterm/',
+    'node_modules/xterm-addon-fit/',
+    'node_modules/prismjs/',
+    'node_modules/dompurify/',
+  ];
+  return allowedNm.some((prefix) => p === prefix.slice(0, -1) || p.startsWith(prefix));
+}
 
 function createStaticServer(appRoot: string): http.Server {
   return http.createServer((req, res) => {
@@ -46,7 +202,8 @@ function createStaticServer(appRoot: string): http.Server {
       if (p === '') p = 'renderer/index.html';
       const filePath = path.resolve(appRoot, p.split('/').join(path.sep));
       const relative = path.relative(appRoot, filePath);
-      if (relative.startsWith('..') || path.isAbsolute(relative)) {
+      const relativePosix = relative.split(path.sep).join('/');
+      if (relative.startsWith('..') || path.isAbsolute(relative) || !isAllowedStaticPath(relativePosix)) {
         res.writeHead(403); res.end(); return;
       }
       fs.readFile(filePath, (err, data) => {
@@ -93,6 +250,7 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
     },
     show: false,
   });
@@ -135,78 +293,66 @@ ipcMain.on('win-close', () => mainWindow?.close());
 ipcMain.on('open-devtools', () => mainWindow?.webContents.openDevTools());
 ipcMain.handle('win-is-maximized', () => mainWindow?.isMaximized() || false);
 
-// ── LM Studio proxy (обход CORS: запросы из main, страница на 127.0.0.1:PORT) ──
-ipcMain.handle('lmstudio-models', async () => {
+// ── Local LLM proxy (OpenAI-compatible: LM Studio, Ollama, custom) ──
+ipcMain.handle('llm-models', async (_: unknown, req: LLMModelsRequest) => {
   try {
-    const r = await fetch(`${LM_STUDIO_URL}/models`);
-    const data = await r.json();
-    return data;
+    return await resolveLLMModels(req || {});
   } catch (_) {
     return null;
   }
 });
 
-ipcMain.on('lmstudio-abort', () => {
-  if (lmStudioAbortController) {
-    lmStudioAbortController.abort();
-    lmStudioAbortController = null;
-  }
+ipcMain.on('llm-abort', () => abortLlmStream());
+
+ipcMain.handle('llm-stream', async (_: unknown, payload: unknown) => {
+  const win = mainWindow;
+  if (!win?.webContents) return;
+  const messages = Array.isArray(payload)
+    ? payload
+    : (payload as { messages?: unknown[] })?.messages;
+  if (!messages || !Array.isArray(messages)) return;
+  const opts =
+    typeof payload === 'object' && payload !== null && !Array.isArray(payload)
+      ? (payload as LLMStreamOptions & { messages?: unknown[] })
+      : {};
+  await proxyLlmChatStream(
+    win,
+    messages,
+    opts,
+    { chunk: 'llm-chunk', end: 'llm-stream-end', error: 'llm-stream-error' },
+  );
 });
+
+// Legacy LM Studio IPC (default URL) — backward compatibility
+ipcMain.handle('lmstudio-models', async () => resolveLLMModels({ baseUrl: DEFAULT_LM_STUDIO_URL, providerId: 'lmstudio' }));
+
+ipcMain.on('lmstudio-abort', () => abortLlmStream());
 
 ipcMain.handle('lmstudio-stream', async (_: unknown, payload: unknown) => {
   const win = mainWindow;
   if (!win?.webContents) return;
-  const messages = Array.isArray(payload) ? payload : (payload as { messages?: unknown[] })?.messages;
+  const messages = Array.isArray(payload)
+    ? payload
+    : (payload as { messages?: unknown[] })?.messages;
   if (!messages || !Array.isArray(messages)) return;
-  const opts = typeof payload === 'object' && payload !== null && !Array.isArray(payload) ? (payload as { temperature?: number; max_tokens?: number; response_format?: unknown }) : {};
-  const temperature = typeof opts.temperature === 'number' ? opts.temperature : 0.4;
-  const max_tokens = typeof opts.max_tokens === 'number' ? opts.max_tokens : 32768;
-  const body: Record<string, unknown> = {
-    model: '',
-    messages,
-    stream: true,
-    temperature,
-    max_tokens,
+  const raw =
+    typeof payload === 'object' && payload !== null && !Array.isArray(payload)
+      ? (payload as LLMStreamOptions & { messages?: unknown[] })
+      : {};
+  const opts: LLMStreamOptions = {
+    baseUrl: DEFAULT_LM_STUDIO_URL,
+    apiKey: raw.apiKey,
+    model: raw.model,
+    temperature: raw.temperature,
+    max_tokens: raw.max_tokens,
+    response_format: raw.response_format,
   };
-  if (opts.response_format && typeof opts.response_format === 'object') body.response_format = opts.response_format;
-
-  lmStudioAbortController = new AbortController();
-  const signal = lmStudioAbortController.signal;
-  try {
-    const resp = await fetch(`${LM_STUDIO_URL}/chat/completions`, {
-      signal,
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    lmStudioAbortController = null;
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    if (!resp.body) throw new Error('No response body');
-    const reader = resp.body.getReader();
-    const dec = new TextDecoder();
-    let buf = '';
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buf += dec.decode(value, { stream: true });
-      const lines = buf.split('\n');
-      buf = lines.pop() ?? '';
-      for (const line of lines) {
-        if (!line.startsWith('data: ') || line === 'data: [DONE]') continue;
-        try {
-          const j = JSON.parse(line.slice(6)) as { choices?: Array<{ delta?: { content?: string } }> };
-          const delta = j.choices?.[0]?.delta?.content;
-          if (delta) win.webContents.send('lmstudio-chunk', delta);
-        } catch (_) {}
-      }
-    }
-    win.webContents.send('lmstudio-stream-end');
-  } catch (e) {
-    lmStudioAbortController = null;
-    const err = e as Error;
-    const msg = err.name === 'AbortError' ? ABORT_MESSAGE : (err?.message ?? String(e));
-    win.webContents.send('lmstudio-stream-error', msg);
-  }
+  await proxyLlmChatStream(
+    win,
+    messages,
+    opts,
+    { chunk: 'lmstudio-chunk', end: 'lmstudio-stream-end', error: 'lmstudio-stream-error' },
+  );
 });
 
 // ── Renderer state (survives Ctrl+R) ──────────────────────────
@@ -218,9 +364,22 @@ ipcMain.handle('store-renderer-state', (_: unknown, data: string) => {
 });
 ipcMain.handle('get-renderer-state', () => rendererState);
 
+// ── Secure secrets (API keys) — OS encryption, never in project ─
+ipcMain.handle('secure-set', async (_: unknown, key: string, value: string) => {
+  return secretsVault.secureSet(String(key || ''), String(value ?? ''));
+});
+ipcMain.handle('secure-get', async (_: unknown, key: string) => {
+  return secretsVault.secureGet(String(key || ''));
+});
+ipcMain.handle('secure-delete', async (_: unknown, key: string) => {
+  return secretsVault.secureDelete(String(key || ''));
+});
+ipcMain.handle('secure-encryption-available', () => secretsVault.secureEncryptionAvailable());
+
 // ── Open folder dialog ───────────────────────────────────────
 ipcMain.handle('open-folder-dialog', async () => {
-  return dialog.showOpenDialog(mainWindow!, {
+  if (!mainWindow) return { canceled: true, filePaths: [] as string[] };
+  return dialog.showOpenDialog(mainWindow, {
     properties: ['openDirectory'],
     title: 'Выберите папку проекта',
   });

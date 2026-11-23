@@ -1,7 +1,7 @@
 {
-  "name": "custom-ide",
+  "name": "sirius-ide",
   "version": "1.0.0",
-  "description": "IDE с собственной языковой моделью через LM Studio",
+  "description": "Sirius IDE — локальный AI-агент (Ollama / LM Studio / OpenAI-compatible)",
   "main": "dist/main.js",
   "scripts": {
     "build": "tsc",
@@ -11,7 +11,7 @@
     "test:watch": "vitest",
     "test:ci": "powershell -ExecutionPolicy Bypass -File scripts/test-pipeline.ps1",
     "test:cover": "powershell -ExecutionPolicy Bypass -File scripts/test-pipeline.ps1 -Cover",
-    "pack": "npm run build && electron-packager . Sirius-IDE --platform=win32 --arch=x64 --out=release --overwrite",
+    "rebuild:native": "node scripts/postinstall.js --rebuild-native",
     "dist": "npm run build && electron-builder --win nsis portable",
     "postinstall": "node scripts/postinstall.js"
   },
@@ -19,16 +19,16 @@
     "ide",
     "electron",
     "monaco",
+    "ollama",
     "lm-studio"
   ],
-  "author": "",
+  "author": "Sirius IDE",
   "license": "MIT",
   "devDependencies": {
     "@types/fs-extra": "^11.0.4",
     "@types/node": "^20.10.0",
     "electron": "^41.0.3",
     "electron-builder": "^26.0.12",
-    "electron-packager": "^17.1.2",
     "electron-rebuild": "^3.2.9",
     "typescript": "^5.3.0",
     "vitest": "^4.1.1"
@@ -42,9 +42,20 @@
     "files": [
       "dist/**/*",
       "renderer/**/*",
-      "node_modules/**/*",
       "package.json",
-      "icon.ico"
+      "icon.ico",
+      "node_modules/**/*",
+      "!node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}",
+      "!node_modules/*/{test,__tests__,tests,powered-test,example,examples}",
+      "!node_modules/*.d.ts",
+      "!node_modules/.bin",
+      "!**/*.{map,ts}",
+      "!**/node_modules/**/{electron,electron-builder,electron-rebuild,typescript,vitest,app-builder-*}/**"
+    ],
+    "asar": true,
+    "asarUnpack": [
+      "**/node_modules/node-pty/**/*",
+      "**/*.node"
     ],
     "win": {
       "target": [

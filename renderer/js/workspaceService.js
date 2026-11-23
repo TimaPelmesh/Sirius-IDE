@@ -100,6 +100,17 @@ async function openFolderFlow() {
   setTimeout(() => { if (switchSeq === _workspaceSwitchSeq) refreshTree().catch(() => {}); }, 120);
   setTimeout(() => { if (switchSeq === _workspaceSwitchSeq) refreshTree().catch(() => {}); }, 600);
 
+  // Restore cached tabs / expanded folders / layout for this project
+  if (typeof restoreProjectCacheForRoot === 'function') {
+    try {
+      await restoreProjectCacheForRoot(folder);
+      if (switchSeq === _workspaceSwitchSeq) await refreshTree().catch(function () {});
+    } catch (_) {}
+  }
+
   saveState();
   detectRunCommand();
+  if (typeof tryRestoreAgentSessionFromProject === 'function') {
+    tryRestoreAgentSessionFromProject().catch(function () {});
+  }
 }

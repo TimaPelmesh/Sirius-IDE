@@ -1,12 +1,12 @@
 # Sirius IDE
 
-IDE с локальной языковой моделью через LM Studio. Редактор кода на базе Monaco, встроенный терминал, AI-ассистент с возможностью управления файлами.
+Локальный AI-агент IDE: Monaco + терминал + Ollama / LM Studio / любой OpenAI-compatible API.
 
 ## Требования
 
-- **Node.js** 18+ (рекомендуется 20 LTS)
-- **LM Studio** — для работы AI (опционально)
-- **Windows** — основной целевой режим (node-pty)
+- **Node.js** 18+ (лучше 20 LTS)
+- **Ollama** или **LM Studio** (или свой `/v1` endpoint)
+- **Windows** — основной режим (терминал через `node-pty`)
 
 ## Установка
 
@@ -14,11 +14,19 @@ IDE с локальной языковой моделью через LM Studio. 
 npm install
 ```
 
-После установки автоматически выполняется `electron-rebuild` для сборки native-модуля `node-pty`. Если терминал не работает, пересоберите вручную:
+`npm install` нужен **один раз** (или после смены зависимостей в `package.json`). Каждый день достаточно:
 
 ```bash
-npm run postinstall
+npm start
 ```
+
+Native-терминал собирается отдельно (раньше из‑за этого install «висел» минутами):
+
+```bash
+npm run rebuild:native
+```
+
+Нужны Visual Studio Build Tools (C++). Без этого IDE работает, но встроенный терминал может не подняться.
 
 ## Запуск
 
@@ -26,25 +34,17 @@ npm run postinstall
 npm start
 ```
 
-Или сборка + запуск:
+## Локальные модели
 
-```bash
-npm run build
-npm start
-```
+В панели AI выбери провайдер:
 
-Режим разработки (без `npm run build`):
+| Провайдер | URL по умолчанию |
+|-----------|------------------|
+| LM Studio | `http://127.0.0.1:1234/v1` |
+| Ollama | `http://127.0.0.1:11434/v1` |
+| Custom | свой base URL (+ optional API key) |
 
-```bash
-npm run dev
-```
-
-## Подключение LM Studio
-
-1. Установите [LM Studio](https://lmstudio.ai/)
-2. Загрузите любую модель (например, Llama, Mistral)
-3. Откройте **Local Server** → **Start Server** (порт 1234)
-4. В Sirius IDE индикатор статуса в правом нижнем углу станет зелёным
+Ollama: `ollama serve` + любая модель (`ollama pull qwen2.5-coder` и т.п.).
 
 ## Структура проекта
 

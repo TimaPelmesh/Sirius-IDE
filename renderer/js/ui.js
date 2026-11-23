@@ -692,6 +692,14 @@ function initShortcuts() {
       }
       return;
     }
+    const inTerm = e.target.closest('#term-panel') || e.target.closest('.xterm');
+    if (inTerm && ctrl && e.key.toLowerCase() === 'v') {
+      e.preventDefault();
+      const inst = typeof termInstances !== 'undefined' && typeof activeTermId !== 'undefined'
+        ? termInstances.get(activeTermId) : null;
+      if (inst && typeof inst.pasteIntoTerm === 'function') inst.pasteIntoTerm();
+      return;
+    }
     if (inTree && projectRoot && ctrl && e.key.toLowerCase() === 'z') {
       e.preventDefault();
       if (typeof undoExplorerLastAction === 'function') undoExplorerLastAction();
@@ -817,6 +825,29 @@ function handleMenuAction(action) {
     case 'win-maximize':   window.api.winMaximize(); break;
     case 'win-close':      window.api.winClose(); break;
   }
+}
+
+function initAiPanelChrome() {
+  const panel = $('ai-panel');
+  if (panel && !panel.classList.contains('ai-panel-ready')) {
+    panel.classList.add('ai-panel-ready');
+  }
+  const composer = $('ai-composer');
+  if (composer && !composer.dataset.boundFocus) {
+    composer.dataset.boundFocus = '1';
+    composer.addEventListener('focusin', () => {
+      composer.classList.add('ai-composer-focused');
+    });
+    composer.addEventListener('focusout', () => {
+      composer.classList.remove('ai-composer-focused');
+    });
+  }
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initAiPanelChrome);
+} else {
+  initAiPanelChrome();
 }
 
 async function saveAllFiles() {

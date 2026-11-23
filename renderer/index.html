@@ -8,15 +8,15 @@
              style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
              img-src 'self' data: blob:;
              font-src 'self' data: https://fonts.gstatic.com;
-             connect-src 'self' http://localhost:1234 http://127.0.0.1:1234;
+             connect-src 'self' http://127.0.0.1:* http://localhost:*;
              object-src 'none';
              base-uri 'self';
              frame-ancestors 'none';
              worker-src 'self' blob:;" />
-  <title>Sirius IDE</title>
+  <title>Sirius</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Sora:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
   <link rel="stylesheet" href="../node_modules/prismjs/themes/prism-tomorrow.min.css" />
   <link rel="stylesheet" href="../node_modules/monaco-editor/min/vs/editor/editor.main.css" />
@@ -28,24 +28,17 @@
 
 <!-- ── Splash Screen ─────────────────────────────────────────── -->
 <div id="splash" class="splash-screen" aria-hidden="true">
-  <!-- stars injected by JS -->
-  <!-- explosion layers -->
-  <div class="splash-flash"></div>
-  <div class="splash-shockwave sw1"></div>
-  <div class="splash-shockwave sw2"></div>
-  <div class="splash-shockwave sw3"></div>
-  <div class="splash-burst-core"></div>
-  <!-- title + loader -->
   <div class="splash-center">
+    <div class="splash-mark" aria-hidden="true">
+      <img src="assets/sirius-mark.svg" width="72" height="72" alt="" />
+    </div>
     <div class="splash-wordmark">
-      <span class="splash-word-s">S</span><span class="splash-word-rest">irius</span><span class="splash-word-ide"> IDE</span>
+      <span class="splash-brand">Sirius</span>
     </div>
     <div class="splash-loading-area">
-      <div class="splash-loading-msg" id="splash-msg">Инициализация редактора…</div>
-      <div class="splash-dots">
-        <span class="splash-dot"></span>
-        <span class="splash-dot"></span>
-        <span class="splash-dot"></span>
+      <div class="splash-loading-msg" id="splash-msg">Инициализация…</div>
+      <div class="splash-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-hidden="true">
+        <span class="splash-progress-bar"></span>
       </div>
     </div>
   </div>
@@ -55,8 +48,8 @@
 <div class="titlebar" id="titlebar">
   <div class="titlebar-drag"></div>
   <span class="titlebar-brand">
-    <img class="titlebar-brand-icon" src="../icon.ico" alt="Sirius IDE" />
-    Sirius IDE
+    <img class="titlebar-brand-icon" src="assets/sirius-mark.svg" alt="" />
+    <span class="titlebar-brand-text">Sirius</span>
   </span>
   <div class="titlebar-center" id="titlebar-center"></div>
   <div class="titlebar-actions">
@@ -100,8 +93,13 @@
       <button class="ab-btn" data-view="search" title="Search (Ctrl+F)" data-i18n-title="tab.search.title">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
       </button>
-      <button class="ab-btn" data-view="ai" title="Sirius AI (Ctrl+Shift+A)">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 2a9.96 9.96 0 0 1 6.29 2.23M20.77 8A10 10 0 1 1 8 3.23"/><circle cx="12" cy="12" r="3"/></svg>
+      <button class="ab-btn" data-view="ai" title="Sirius Agent (Ctrl+Shift+A)">
+        <svg class="ab-sirius" width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M12 2.5 L21.5 12 L12 21.5 L2.5 12 Z" stroke="currentColor" stroke-width="1.2" fill="none" opacity="0.4"/>
+          <path d="M12 6 L18 12 L12 18 L6 12 Z" stroke="currentColor" stroke-width="1.2" fill="none" opacity="0.75"/>
+          <path d="M12 9.5 L14.5 12 L12 14.5 L9.5 12 Z" fill="currentColor"/>
+          <path d="M12 3.8 V6.2 M12 17.8 V20.2 M3.8 12 H6.2 M17.8 12 H20.2" stroke="currentColor" stroke-width="1.2" stroke-linecap="square" opacity="0.9"/>
+        </svg>
       </button>
     </div>
     <div class="ab-bottom">
@@ -176,7 +174,7 @@
 
         <div class="help-section">
           <div class="help-section-title">AI — команды инструментов</div>
-          <div class="help-text">Sirius AI может управлять файлами. Просто попроси его, например: <em>«Создай файл main.py с кодом...»</em>. Он автоматически использует команды:</div>
+          <div class="help-text">Агент читает и правит файлы проекта. Один раз разреши запись в папку — дальше CREATE/EDIT идут без карточек на каждый файл. DELETE — только по явной просьбе (в .trash/).</div>
           <div class="help-cmd"><code>[CREATEFILE:путь]</code><span>Создать файл</span></div>
           <div class="help-cmd"><code>[EDITFILE:путь]</code><span>Изменить файл</span></div>
           <div class="help-cmd"><code>[READFILE:путь]</code><span>Прочитать файл</span></div>
@@ -270,15 +268,11 @@
     <!-- Welcome: separate overlay, covers editor when no file open -->
     <div id="welcome" class="welcome-overlay">
         <div class="welcome-inner">
-          <div class="welcome-logo">
-            <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
-              <circle cx="24" cy="24" r="22" fill="var(--c-accent)" opacity=".15"/>
-              <circle cx="24" cy="24" r="14" fill="var(--c-accent)" opacity=".25"/>
-              <circle cx="24" cy="24" r="6" fill="var(--c-accent)"/>
-            </svg>
+          <div class="welcome-logo" aria-hidden="true">
+            <img src="assets/sirius-mark.svg" width="64" height="64" alt="" />
           </div>
-          <h1 class="welcome-title">Sirius IDE</h1>
-          <p class="welcome-sub">AI-driven development environment</p>
+          <h1 class="welcome-title">Sirius</h1>
+          <p class="welcome-sub">Локальный агент · точный инструмент</p>
           <div class="welcome-actions">
             <button class="btn-primary" id="welcome-open-folder">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
@@ -317,7 +311,7 @@
 
           <div class="settings-section">
             <div class="settings-label">Анимация запуска</div>
-            <div class="settings-hint">Космическая анимация при открытии приложения. Отключите для мгновенного старта.</div>
+            <div class="settings-hint">Краткий экран при запуске. Отключите для мгновенного старта; после первого запуска показывается короче.</div>
             <label class="settings-toggle">
               <input type="checkbox" id="settings-splash-enabled" checked />
               <span class="settings-toggle-track"><span class="settings-toggle-thumb"></span></span>
@@ -342,7 +336,7 @@
               Кратко задаёт роль и стиль ответов. К нему автоматически добавляются: инструкции по инструментам (CREATEFILE, EDITFILE, READFILE, READDIR, DELETEFILE), контекст проекта и открытый файл.
             </div>
             <textarea id="settings-sysprompt" class="settings-textarea" rows="6"
-              placeholder="Ты — экспертный ИИ-ассистент в Sirius IDE. Отвечай на языке пользователя. Будь точным и действуй по инструкциям."></textarea>
+              placeholder="Ты — экспертный ИИ-ассистент в Sirius. Отвечай на языке пользователя. Будь точным и действуй по инструкциям."></textarea>
           </div>
 
           <div class="settings-section settings-section-actions">
@@ -391,6 +385,9 @@
         <button class="icon-btn" id="btn-new-term" title="Новый терминал">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         </button>
+        <button class="icon-btn" id="btn-paste-term" title="Вставить в терминал (Ctrl+V)">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg>
+        </button>
         <button class="icon-btn" id="btn-clear-term" title="Очистить">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
         </button>
@@ -410,47 +407,82 @@
   <aside class="ai-panel" id="ai-panel">
     <div class="ai-header">
       <div class="ai-title-row">
-        <span class="ai-title">Sirius AI</span>
+        <span class="ai-title">Sirius</span>
       </div>
       <div class="ai-header-actions">
+        <button class="icon-btn" id="btn-clear-agent-goal" title="Сбросить цель агента" hidden>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>
+        </button>
         <button class="icon-btn" id="btn-new-chat" title="Новый чат">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><line x1="12" y1="8" x2="12" y2="14"/><line x1="9" y1="11" x2="15" y2="11"/></svg>
         </button>
       </div>
     </div>
+    <div class="ai-session-bar" id="ai-session-bar" hidden>
+      <div class="ai-session-goal" id="ai-session-goal"></div>
+      <div class="ai-session-meta" id="ai-session-meta"></div>
+    </div>
     <div class="chat-tabs-wrap" id="chat-tabs-wrap">
       <div class="chat-tabs" id="chat-tabs"></div>
     </div>
     <div class="ai-model-bar" id="ai-model-bar">
-      <span class="ai-dot" id="ai-dot"></span>
-      <svg class="ai-model-icon" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
-      <span id="model-name" class="ai-model-name">—</span>
+      <span class="ai-dot" id="ai-dot" aria-hidden="true"></span>
+      <button type="button" class="ai-model-chip" id="ai-model-chip" title="Модель и провайдер">
+        <span id="model-name" class="ai-model-name">—</span>
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <span id="ai-status" class="ai-status" aria-live="polite"></span>
       <span class="ai-token-count" id="ai-token-count" title="Оценка токенов в контексте"></span>
+      <button type="button" class="icon-btn ai-settings-btn" id="ai-settings-btn" title="Настройки модели">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
+      <div class="ai-settings-menu" id="ai-settings-menu" hidden>
+        <div class="ai-settings-menu-title">Модель</div>
+        <label class="ai-settings-row">
+          <span>Провайдер</span>
+          <select id="ai-provider" class="ai-provider-select" title="Провайдер AI">
+            <option value="lmstudio">LM Studio</option>
+            <option value="ollama">Ollama</option>
+            <option value="custom">Свой API</option>
+          </select>
+        </label>
+        <label class="ai-settings-row">
+          <span>Модель</span>
+          <select id="ai-model" class="ai-model-select" title="Модель"></select>
+        </label>
+        <label class="ai-settings-row" id="ai-settings-custom">
+          <span>Base URL</span>
+          <input type="text" id="ai-base-url" class="ai-provider-field" placeholder="http://127.0.0.1:PORT/v1  или вставь свой API" spellcheck="false" />
+        </label>
+        <label class="ai-settings-row" id="ai-settings-key-row">
+          <span>API key</span>
+          <input type="password" id="ai-api-key" class="ai-provider-field ai-api-key" placeholder="опционально" autocomplete="off" />
+        </label>
+        <div class="ai-settings-actions">
+          <button type="button" id="ai-llm-refresh" class="btn-ghost ai-llm-refresh">Обновить список</button>
+        </div>
+      </div>
     </div>
     <div class="ai-messages" id="ai-messages">
-      <div class="ai-placeholder" id="ai-placeholder">
-        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" opacity=".25"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-        <p class="ai-placeholder-title">Sirius AI</p>
-        <p>Задайте вопрос или попросите<br/>изменить код в проекте</p>
-        <div class="ai-quick-actions" id="ai-quick-actions">
+      <div class="ai-placeholder ai-empty-state" id="ai-placeholder">
+        <div class="ai-empty-mark" aria-hidden="true">
+          <img src="assets/sirius-mark.svg" width="40" height="40" alt="" />
+        </div>
+        <p class="ai-empty-brand">Sirius</p>
+        <p class="ai-empty-sub">Локальный агент. Пиши задачу — правки уйдут в файлы проекта.</p>
+        <div class="ai-quick-actions ai-empty-actions" id="ai-quick-actions">
           <div class="ai-qa-row" id="ai-qa-row-1">
-            <button class="ai-qa-btn" data-prompt="Проверь проект на ошибки и уязвимости">🔍 Найти ошибки</button>
-            <button class="ai-qa-btn" data-prompt="Напиши тесты для текущего файла">✅ Тесты</button>
-          </div>
-          <div class="ai-qa-row" id="ai-qa-row-2">
-            <button class="ai-qa-btn" data-prompt="Добавь JSDoc-комментарии ко всем публичным функциям в текущем файле">📝 JSDoc</button>
-            <button class="ai-qa-btn" data-prompt="Проведи код-ревью текущего файла: архитектура, стиль, потенциальные баги">👁 Ревью</button>
-          </div>
-          <div class="ai-qa-row">
-            <button class="ai-qa-btn" data-prompt="Объясни структуру проекта и как взаимодействуют основные компоненты">🗺 Структура</button>
-            <button class="ai-qa-btn" data-prompt="Что можно улучшить в производительности текущего файла?">⚡ Перфоманс</button>
+            <button type="button" class="ai-qa-btn" data-prompt="Проверь проект на ошибки и уязвимости">Ошибки</button>
+            <button type="button" class="ai-qa-btn" data-prompt="Напиши тесты для текущего файла">Тесты</button>
+            <button type="button" class="ai-qa-btn" data-prompt="Проведи код-ревью текущего файла: архитектура, стиль, потенциальные баги">Ревью</button>
+            <button type="button" class="ai-qa-btn" data-prompt="Объясни структуру проекта и как взаимодействуют основные компоненты">Карта</button>
           </div>
         </div>
       </div>
     </div>
-    <div class="ai-input-area">
-      <div class="ai-input-options">
-        <div class="ai-mode-toggle" role="group" aria-label="Режим AI">
+    <div class="ai-input-area ai-composer" id="ai-composer">
+      <div class="ai-input-options ai-composer-toolbar">
+        <div class="ai-mode-toggle ai-composer-mode" role="group" aria-label="Режим AI">
           <input type="radio" name="ai-mode" id="ai-mode-agent" value="agent" checked hidden>
           <label for="ai-mode-agent" class="ai-mode-btn" title="Agent — читает и изменяет файлы проекта">
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.58-7 8-7s8 3 8 7"/></svg>
@@ -467,9 +499,9 @@
           <span id="ai-ctx-label">проект</span>
         </div>
       </div>
-      <div class="ai-input-row">
-        <textarea id="ai-input" class="ai-input" placeholder="Спросите Sirius AI…" rows="1"></textarea>
-        <button class="ai-send-btn" id="ai-send" title="Отправить (Enter)">
+      <div class="ai-input-row ai-composer-row">
+        <textarea id="ai-input" class="ai-input ai-composer-input" placeholder="Сообщение агенту…" rows="1" aria-label="Сообщение"></textarea>
+        <button type="button" class="ai-send-btn ai-composer-send" id="ai-send" title="Отправить (Enter)">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
         </button>
       </div>
@@ -487,7 +519,7 @@
     </span>
     <span class="sb-item sb-lm" id="sb-lm">
       <span class="sb-dot" id="sb-dot"></span>
-      LM Studio
+      LLM
     </span>
     <span class="sb-item" id="sb-access" title="Доступ к рабочей папке">RW ?</span>
   </div>

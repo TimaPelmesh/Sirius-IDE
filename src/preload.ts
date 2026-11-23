@@ -17,6 +17,12 @@ contextBridge.exposeInMainWorld('api', {
   storeRendererState: (data: string) => ipcRenderer.invoke('store-renderer-state', data),
   getRendererState: () => ipcRenderer.invoke('get-renderer-state'),
 
+  // ── Secure secrets (API keys via OS safeStorage) ────────────
+  secureSet: (key: string, value: string) => ipcRenderer.invoke('secure-set', key, value),
+  secureGet: (key: string) => ipcRenderer.invoke('secure-get', key),
+  secureDelete: (key: string) => ipcRenderer.invoke('secure-delete', key),
+  secureEncryptionAvailable: () => ipcRenderer.invoke('secure-encryption-available'),
+
   // ── Dialog ─────────────────────────────────────────────────
   openFolderDialog: () => ipcRenderer.invoke('open-folder-dialog'),
 
@@ -49,9 +55,41 @@ contextBridge.exposeInMainWorld('api', {
   // ── System ─────────────────────────────────────────────────
   fixFolderPermissions: (dir: string) => ipcRenderer.invoke('fix-folder-permissions', dir),
 
-  // ── LM Studio (proxy через main, без CORS) ─────────────────
+  // ── Local LLM (OpenAI-compatible proxy через main, без CORS) ─
+  getLLMModels: (config: { baseUrl: string; apiKey?: string; providerId?: string }) =>
+    ipcRenderer.invoke('llm-models', config),
+  streamLLMChat: (payload: {
+    baseUrl: string;
+    apiKey?: string;
+    model?: string;
+    messages: unknown[];
+    temperature?: number;
+    max_tokens?: number;
+    top_p?: number;
+    seed?: number;
+    response_format?: unknown;
+  }) => ipcRenderer.invoke('llm-stream', payload),
+  abortLLMStream: () => ipcRenderer.send('llm-abort'),
+  onLLMChunk: (cb: (chunk: string) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, chunk: string) => cb(chunk);
+    ipcRenderer.on('llm-chunk', handler);
+    return () => ipcRenderer.removeListener('llm-chunk', handler);
+  },
+  onLLMStreamEnd: (cb: () => void) => {
+    const handler = () => cb();
+    ipcRenderer.on('llm-stream-end', handler);
+    return () => ipcRenderer.removeListener('llm-stream-end', handler);
+  },
+  onLLMStreamError: (cb: (err: string) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, err: string) => cb(err);
+    ipcRenderer.on('llm-stream-error', handler);
+    return () => ipcRenderer.removeListener('llm-stream-error', handler);
+  },
+
+  // Legacy LM Studio aliases
   getLMStudioModels: () => ipcRenderer.invoke('lmstudio-models'),
-  streamLMStudioChat: (payload: { messages: unknown[]; temperature?: number; max_tokens?: number; response_format?: unknown }) => ipcRenderer.invoke('lmstudio-stream', payload),
+  streamLMStudioChat: (payload: { messages: unknown[]; temperature?: number; max_tokens?: number; response_format?: unknown }) =>
+    ipcRenderer.invoke('lmstudio-stream', payload),
   abortLMStudioStream: () => ipcRenderer.send('lmstudio-abort'),
   onLMStudioChunk: (cb: (chunk: string) => void) => {
     const handler = (_: Electron.IpcRendererEvent, chunk: string) => cb(chunk);
