@@ -1,8 +1,8 @@
 # ============================================================
-# Sirius IDE — Test Pipeline
-# Запуск: .\scripts\test-pipeline.ps1
-# Опции:  -Watch  (watch-mode, не выходит)
-#         -Cover  (собирает coverage)
+# Sirius IDE - Test Pipeline
+# Run: .\scripts\test-pipeline.ps1
+# Options: -Watch  (watch mode)
+#          -Cover  (coverage)
 # ============================================================
 param(
   [switch]$Watch,
@@ -16,51 +16,52 @@ $Root = Split-Path $PSScriptRoot -Parent
 Set-Location $Root
 
 $divider = '=' * 60
-$ok      = '[  OK  ]'
-$fail    = '[ FAIL ]'
-$info    = '[ INFO ]'
+$ok = '[  OK  ]'
+$fail = '[ FAIL ]'
+$info = '[ INFO ]'
 
 function Write-Step([string]$msg) {
-  Write-Host "`n$divider" -ForegroundColor DarkCyan
-  Write-Host "  $msg" -ForegroundColor Cyan
+  Write-Host ""
+  Write-Host $divider -ForegroundColor DarkCyan
+  Write-Host ("  " + $msg) -ForegroundColor Cyan
   Write-Host $divider -ForegroundColor DarkCyan
 }
 
 function Write-Result([bool]$success, [string]$msg) {
   if ($success) {
-    Write-Host "  $ok  $msg" -ForegroundColor Green
+    Write-Host ("  " + $ok + "  " + $msg) -ForegroundColor Green
   } else {
-    Write-Host "  $fail  $msg" -ForegroundColor Red
+    Write-Host ("  " + $fail + "  " + $msg) -ForegroundColor Red
   }
 }
 
 $totalFailed = 0
-$startTime   = Get-Date
+$startTime = Get-Date
 
-Write-Host "`n  Sirius IDE — Autotest Pipeline" -ForegroundColor Magenta
-Write-Host "  Started: $($startTime.ToString('HH:mm:ss'))" -ForegroundColor DarkGray
+Write-Host ""
+Write-Host "  Sirius IDE - Autotest Pipeline" -ForegroundColor Magenta
+Write-Host ("  Started: " + $startTime.ToString('HH:mm:ss')) -ForegroundColor DarkGray
 
-# ── Step 1: TypeScript compilation ───────────────────────────
-Write-Step "Step 1/3 — TypeScript Build"
-try {
-  $tscOut = & npx tsc --noEmit 2>&1
-  if ($LASTEXITCODE -ne 0) {
-    Write-Host $tscOut -ForegroundColor Yellow
-    Write-Result $false "TypeScript compile errors found"
-    $totalFailed++
-  } else {
-    Write-Result $true "TypeScript compiles clean"
-  }
-} catch {
-  Write-Result $false "tsc failed: $_"
+# Step 1: TypeScript
+Write-Step "Step 1/3 - TypeScript Build"
+$prevEap = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+$tscOut = & npx tsc --noEmit 2>&1
+$tscCode = $LASTEXITCODE
+$ErrorActionPreference = $prevEap
+if ($tscCode -ne 0) {
+  Write-Host $tscOut -ForegroundColor Yellow
+  Write-Result $false "TypeScript compile errors found"
   $totalFailed++
+} else {
+  Write-Result $true "TypeScript compiles clean"
 }
 
-# ── Step 2: Unit tests (Vitest) ───────────────────────────────
-Write-Step "Step 2/3 — Unit Tests (Vitest)"
+# Step 2: Vitest
+Write-Step "Step 2/3 - Unit Tests (Vitest)"
 
 if ($Watch) {
-  Write-Host "  $info  Watch mode — Ctrl+C to exit" -ForegroundColor Yellow
+  Write-Host ("  " + $info + "  Watch mode - Ctrl+C to exit") -ForegroundColor Yellow
   & npx vitest
   exit 0
 }
@@ -77,61 +78,73 @@ try {
     Write-Result $true "All unit tests passed"
   }
 } catch {
-  Write-Result $false "Vitest error: $_"
+  Write-Result $false ("Vitest error: " + $_)
   $totalFailed++
 }
 
-# ── Step 3: Static checks ─────────────────────────────────────
-Write-Step "Step 3/3 — Static Checks"
+# Step 3: Static checks
+Write-Step "Step 3/3 - Static Checks"
 
-# Check for console.log leaks in production source
 $consoleLogs = Get-ChildItem -Path src -Filter '*.ts' -Recurse |
   Select-String -Pattern 'console\.log' -List
 if ($consoleLogs) {
-  Write-Host "  [WARN]  console.log found in src/ (not a failure, just FYI):" -ForegroundColor Yellow
-  $consoleLogs | ForEach-Object { Write-Host "          $($_.Path):$($_.LineNumber)" -ForegroundColor DarkYellow }
+  Write-Host "  [WARN]  console.log found in src/ (FYI):" -ForegroundColor Yellow
+  $consoleLogs | ForEach-Object {
+    Write-Host ("          " + $_.Path + ":" + $_.LineNumber) -ForegroundColor DarkYellow
+  }
 } else {
   Write-Result $true "No console.log leaks in src/"
 }
 
-# Check renderer JS for obvious syntax issues (node --check)
-$rendererFiles = @(
-  'renderer\js\utils.js',
-  'renderer\js\ai.js',
-  'renderer\app.js'
-)
+$rendererCheckPaths = @(Join-Path $Root 'renderer\app.js')
+$jsDir = Join-Path $Root 'renderer\js'
+if (Test-Path $jsDir) {
+  $rendererCheckPaths += @(Get-ChildItem -Path $jsDir -Filter '*.js' -File |
+    ForEach-Object { $_.FullName })
+}
+
 $syntaxOk = $true
-foreach ($f in $rendererFiles) {
-  if (Test-Path $f) {
-    $chk = & node --check $f 2>&1
-    if ($LASTEXITCODE -ne 0) {
-      Write-Host "  [WARN]  Syntax issue in $f" -ForegroundColor Yellow
-      Write-Host "          $chk" -ForegroundColor DarkYellow
-      $syntaxOk = $false
-    }
+$checked = 0
+foreach ($path in $rendererCheckPaths) {
+  if (-not (Test-Path $path)) { continue }
+  $checked++
+  $rel = $path
+  if ($path.StartsWith($Root, [System.StringComparison]::OrdinalIgnoreCase)) {
+    $rel = $path.Substring($Root.Length).TrimStart('\', '/')
+  }
+  $chk = & node --check $path 2>&1
+  if ($LASTEXITCODE -ne 0) {
+    Write-Host ("  [FAIL]  Syntax issue in " + $rel) -ForegroundColor Red
+    Write-Host ("          " + $chk) -ForegroundColor DarkYellow
+    $syntaxOk = $false
+    $totalFailed++
   }
 }
 if ($syntaxOk) {
-  Write-Result $true "Renderer JS syntax OK (node --check)"
+  Write-Result $true ("Renderer JS syntax OK (" + $checked + " files)")
+} else {
+  Write-Result $false "Renderer JS syntax errors"
 }
 
-# Check dist/ outputs are up to date
-$srcMain  = Get-Item 'src\main.ts'     -ErrorAction SilentlyContinue
-$distMain = Get-Item 'dist\main.js'    -ErrorAction SilentlyContinue
-if ($distMain -and $srcMain -and ($srcMain.LastWriteTime -gt $distMain.LastWriteTime)) {
-  Write-Host "  [WARN]  dist/ may be stale — run npm run build" -ForegroundColor Yellow
+$srcMain = Get-Item 'src\main.ts' -ErrorAction SilentlyContinue
+$distMain = Get-Item 'dist\main.js' -ErrorAction SilentlyContinue
+if ($null -ne $distMain -and $null -ne $srcMain -and ($srcMain.LastWriteTime -gt $distMain.LastWriteTime)) {
+  Write-Host "  [WARN]  dist/ may be stale - run npm run build" -ForegroundColor Yellow
 } else {
   Write-Result $true "dist/ is up to date"
 }
 
-# ── Summary ───────────────────────────────────────────────────
+# Summary
 $elapsed = (Get-Date) - $startTime
-Write-Host "`n$divider" -ForegroundColor DarkCyan
+Write-Host ""
+Write-Host $divider -ForegroundColor DarkCyan
 
 if ($totalFailed -eq 0) {
-  Write-Host "  ALL CHECKS PASSED  ($([math]::Round($elapsed.TotalSeconds,1))s)" -ForegroundColor Green
+  $secs = [math]::Round($elapsed.TotalSeconds, 1)
+  Write-Host ("  ALL CHECKS PASSED  (" + $secs + "s)") -ForegroundColor Green
 } else {
-  Write-Host "  $totalFailed CHECK(S) FAILED  ($([math]::Round($elapsed.TotalSeconds,1))s)" -ForegroundColor Red
+  $secs = [math]::Round($elapsed.TotalSeconds, 1)
+  Write-Host ("  " + $totalFailed + " CHECK(S) FAILED  (" + $secs + "s)") -ForegroundColor Red
 }
 
 Write-Host $divider -ForegroundColor DarkCyan

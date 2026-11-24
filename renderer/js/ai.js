@@ -890,74 +890,7 @@ function setExecStepState(step, state, meta) {
   }
 }
 
-// ── Accept / Reject card for AI file writes ───────────────────
-function buildSimpleDiff(oldText, newText) {
-  const o = String(oldText || '').split('\n');
-  const n = String(newText || '').split('\n');
-  const added   = n.filter(l => !o.includes(l)).length;
-  const removed = o.filter(l => !n.includes(l)).length;
-  return { added, removed, oldLen: o.length, newLen: n.length };
-}
-
-function showAiChangeCard(cmd, fullPath, relPath, newContent, oldContent) {
-  return new Promise((resolve) => {
-    const msgArea = document.getElementById('ai-messages');
-    if (!msgArea) { resolve(true); return; }
-
-    const { added, removed, oldLen, newLen } = buildSimpleDiff(oldContent, newContent);
-    const isNew = cmd === 'CREATEFILE' || !String(oldContent || '').trim();
-    const fileName = relPath.split(/[\\/]/).pop();
-    const ext = fileName.split('.').pop().toLowerCase();
-    const previewLines = String(newContent || '').split('\n').slice(0, 12);
-    const langClass = `language-${ext}`;
-
-    const card = document.createElement('div');
-    card.className = 'ai-change-card tool-change-card tool-change-card--' + (isNew ? 'create' : 'edit');
-    card.setAttribute('role', 'group');
-    card.setAttribute('aria-label', (isNew ? 'Создание файла' : 'Изменение файла') + ': ' + relPath);
-    card.innerHTML = `
-      <div class="ai-change-header tool-change-header">
-        <span class="ai-change-cmd tool-change-cmd ${isNew ? 'create' : 'edit'}">${isNew ? 'Create' : 'Edit'}</span>
-        <span class="ai-change-path tool-change-path" title="${escapeHtml(fullPath)}">${escapeHtml(relPath)}</span>
-      </div>
-      <div class="ai-change-stats">
-        ${isNew
-          ? `<span class="ai-change-stat new">Новый файл · ${newLen} строк</span>`
-          : `<span class="ai-change-stat add">+${added}</span><span class="ai-change-stat rem">-${removed}</span><span class="ai-change-stat info">${oldLen}→${newLen} строк</span>`
-        }
-      </div>
-      <details class="ai-change-preview">
-        <summary>Предпросмотр</summary>
-        <pre class="ai-change-pre"><code class="${langClass}">${escapeHtml(previewLines.join('\n'))}${previewLines.length < String(newContent || '').split('\n').length ? '\n…' : ''}</code></pre>
-      </details>
-      <div class="ai-change-actions tool-change-actions">
-        <button type="button" class="ai-change-reject tool-change-reject">Reject</button>
-        <button type="button" class="ai-change-accept tool-change-accept">Accept</button>
-      </div>
-    `;
-
-    msgArea.appendChild(card);
-    msgArea.scrollTop = msgArea.scrollHeight;
-
-    // Highlight preview if Prism is available
-    if (window.Prism) {
-      const codeEl = card.querySelector('code');
-      if (codeEl) Prism.highlightElement(codeEl);
-    }
-
-    card.querySelector('.ai-change-accept').addEventListener('click', () => {
-      card.classList.add('ai-change-accepted', 'tool-change-accepted');
-      setTimeout(() => card.remove(), 500);
-      resolve(true);
-    });
-    card.querySelector('.ai-change-reject').addEventListener('click', () => {
-      card.classList.add('ai-change-rejected', 'tool-change-rejected');
-      setTimeout(() => card.remove(), 500);
-      resolve(false);
-    });
-  });
-}
-
+// ── DELETE confirm card (CREATE/EDIT apply after project grant) ──
 function showAiDeleteCard(fullPath, relPath) {
   return new Promise(async (resolve) => {
     const msgArea = document.getElementById('ai-messages');
@@ -1175,7 +1108,7 @@ var CMD_LABELS = {
 
 function hasFileWriteIntent(userText) {
   var s = String(userText || '').toLowerCase();
-  // Broad intent — real gate is project grant + Accept/Reject cards.
+  // Broad intent — real gate is one-time project write grant.
   return /(созда|измени|исправ|обнов|добав|перепиш|сделай|напиш|реализ|улучш|граф|gui|оболоч|интерфейс|окно|заполн|отрефактор|прорефактор|построй|реструктур|перенес|перемест|оптимиз|задокумент|покрой|генер|в файле|в код|create|edit|update|fix|refactor|implement|change|write|build|generate|add|modify|move|rename|optimize|document|patch|improve|ui)/i.test(s);
 }
 

@@ -156,20 +156,23 @@
 
         <div class="help-section">
           <div class="help-section-title">Начало работы</div>
-          <div class="help-text">Нажми <kbd>Ctrl+B</kbd> или кнопку папки в боковой панели, чтобы открыть проект. Все файлы будут отображены в дереве слева.</div>
+          <div class="help-text">Открой проект: <kbd>Ctrl+O</kbd> или кнопка папки в боковой панели. Файлы появятся в дереве слева. Локальную модель укажи в панели Sirius (Base URL).</div>
         </div>
 
         <div class="help-section">
           <div class="help-section-title">Горячие клавиши</div>
+          <div class="help-kv"><kbd>Ctrl+O</kbd><span>Открыть папку проекта</span></div>
           <div class="help-kv"><kbd>Ctrl+S</kbd><span>Сохранить файл</span></div>
+          <div class="help-kv"><kbd>Ctrl+Shift+S</kbd><span>Сохранить всё</span></div>
           <div class="help-kv"><kbd>Ctrl+N</kbd><span>Новый файл</span></div>
-          <div class="help-kv"><kbd>Ctrl+`</kbd><span>Открыть терминал</span></div>
-          <div class="help-kv"><kbd>Ctrl+B</kbd><span>Свернуть/развернуть боковую панель</span></div>
+          <div class="help-kv"><kbd>Ctrl+W</kbd><span>Закрыть вкладку</span></div>
+          <div class="help-kv"><kbd>Ctrl+B</kbd><span>Проводник / переключение вида</span></div>
+          <div class="help-kv"><kbd>Ctrl+Shift+F</kbd><span>Поиск по проекту</span></div>
           <div class="help-kv"><kbd>Ctrl+Shift+A</kbd><span>Панель Sirius AI</span></div>
-          <div class="help-kv"><kbd>Ctrl+клик</kbd><span>Выделить несколько файлов в проводнике</span></div>
-          <div class="help-kv"><kbd>Ctrl+C</kbd> / <kbd>Ctrl+V</kbd> / <kbd>Delete</kbd><span>Копировать, вставить и удалить файлы (в проводнике)</span></div>
-          <div class="help-kv"><kbd>Enter</kbd><span>Отправить сообщение AI</span></div>
-          <div class="help-kv"><kbd>Shift+Enter</kbd><span>Перенос строки в AI</span></div>
+          <div class="help-kv"><kbd>Ctrl+`</kbd><span>Терминал</span></div>
+          <div class="help-kv"><kbd>Ctrl+± / 0</kbd><span>Масштаб интерфейса</span></div>
+          <div class="help-kv"><kbd>Ctrl+клик</kbd><span>Мультивыбор в проводнике</span></div>
+          <div class="help-kv"><kbd>Enter</kbd> / <kbd>Shift+Enter</kbd><span>Отправить / перенос в AI</span></div>
         </div>
 
         <div class="help-section">
@@ -192,8 +195,8 @@
         </div>
 
         <div class="help-section">
-          <div class="help-section-title">Подключение LM Studio</div>
-          <div class="help-text">1. Открой <strong>LM Studio</strong> и загрузи любую модель<br/>2. Перейди в раздел <strong>Local Server</strong><br/>3. Нажми <strong>Start Server</strong> (порт 1234)<br/>4. Индикатор в правом нижнем углу станет зелёным</div>
+          <div class="help-section-title">Локальная модель</div>
+          <div class="help-text"><strong>LM Studio:</strong> Local Server → Start (порт 1234).<br/><strong>Ollama:</strong> Base URL <code>http://127.0.0.1:11434/v1</code>.<br/><strong>Custom:</strong> любой OpenAI-compatible <code>/v1</code> + optional API key в панели Sirius.</div>
         </div>
 
         <div class="help-section">
@@ -284,10 +287,10 @@
             </button>
           </div>
           <div class="welcome-shortcuts">
-            <div class="shortcut-row"><kbd>Ctrl+B</kbd><span>Файловый менеджер</span></div>
+            <div class="shortcut-row"><kbd>Ctrl+O</kbd><span>Открыть папку</span></div>
+            <div class="shortcut-row"><kbd>Ctrl+Shift+A</kbd><span>Sirius AI</span></div>
             <div class="shortcut-row"><kbd>Ctrl+`</kbd><span>Терминал</span></div>
             <div class="shortcut-row"><kbd>Ctrl+S</kbd><span>Сохранить</span></div>
-            <div class="shortcut-row"><kbd>Ctrl+Shift+A</kbd><span>Sirius AI</span></div>
           </div>
         </div>
     </div><!-- /#welcome -->

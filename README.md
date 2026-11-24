@@ -12,71 +12,61 @@
 
 ```bash
 npm install
-```
-
-`npm install` нужен **один раз** (или после смены зависимостей в `package.json`). Каждый день достаточно:
-
-```bash
 npm start
 ```
 
-Native-терминал собирается отдельно (раньше из‑за этого install «висел» минутами):
+Native-терминал (опционально, нужны VS Build Tools):
 
 ```bash
 npm run rebuild:native
 ```
 
-Нужны Visual Studio Build Tools (C++). Без этого IDE работает, но встроенный терминал может не подняться.
-
-## Запуск
-
-```bash
-npm start
-```
-
 ## Локальные модели
 
-В панели AI выбери провайдер:
+В панели Sirius → настройки модели:
 
 | Провайдер | URL по умолчанию |
 |-----------|------------------|
 | LM Studio | `http://127.0.0.1:1234/v1` |
 | Ollama | `http://127.0.0.1:11434/v1` |
-| Custom | свой base URL (+ optional API key) |
+| Custom | свой Base URL (+ optional API key) |
 
-Ollama: `ollama serve` + любая модель (`ollama pull qwen2.5-coder` и т.п.).
+API-ключи хранятся в OS-encrypted vault, не в папке проекта. URL/модель — в `.sirius/` (в git игнорируется).
 
-## Структура проекта
+## Структура
 
 ```
-IDE/
-├── src/              # Main process (TypeScript)
-│   ├── main.ts       # Точка входа, окно, IPC
-│   ├── preload.ts    # Bridge для renderer
+├── src/                 # Main process (TypeScript)
+│   ├── main.ts          # Окно, static server, IPC
+│   ├── llmProxy.ts      # LLM models + streaming proxy
+│   ├── secretsVault.ts  # Encrypted API keys
+│   ├── preload.ts
 │   ├── fileHandlers.ts
+│   ├── pathValidator.ts
 │   └── terminalHandler.ts
-├── renderer/         # Renderer process
+├── renderer/            # UI
 │   ├── index.html
-│   ├── app.js        # Инициализация и связка модулей
 │   ├── styles.css
-│   └── js/           # Модули (см. ниже)
-├── dist/             # Скомпилированный main process
+│   ├── app.js
+│   └── js/              # Модули
+├── tests/               # Vitest
+├── scripts/             # postinstall, test-pipeline
 └── package.json
 ```
 
-## Модули renderer (js/)
+### Renderer (`js/`)
 
 | Модуль | Назначение |
 |--------|------------|
-| `utils.js` | Утилиты: toast, uid, langOf, getFileIcon |
-| `state.js` | Состояние, persistence, theme |
-| `editor.js` | Инициализация Monaco |
-| `fileTree.js` | Дерево файлов, open/save/close, контекстное меню |
-| `terminal.js` | Терминал (xterm + node-pty) |
-| `search.js` | Поиск по файлам |
-| `ai.js` | AI-чат, LM Studio, инструменты |
-| `ui.js` | Вкладки, меню, resize, модалки |
-| `app.js` | Инициализация и связка модулей |
+| `state.js` | Состояние, LLM settings, project cache |
+| `ai.js` | Агент, инструменты, стрим |
+| `editor.js` / `monaco-config.js` | Monaco |
+| `fileTree.js` | Проводник |
+| `terminal.js` | xterm + pty |
+| `search.js` | Поиск |
+| `ui.js` | Меню, хоткеи, resize |
+| `workspaceService.js` | Open folder / RW probe |
+| `store.js` / `ux.js` / `utils.js` | Store, UX, утилиты |
 
 ## Горячие клавиши
 
@@ -84,33 +74,36 @@ IDE/
 |---------|----------|
 | `Ctrl+O` | Открыть папку |
 | `Ctrl+N` | Новый файл |
-| `Ctrl+S` | Сохранить |
-| `Ctrl+Shift+S` | Сохранить всё |
+| `Ctrl+S` / `Ctrl+Shift+S` | Сохранить / всё |
 | `Ctrl+W` | Закрыть вкладку |
-| `Ctrl+B` | Проводник / Поиск |
-| `Ctrl+Shift+A` | Панель Sirius AI |
+| `Ctrl+B` | Проводник |
+| `Ctrl+Shift+F` | Поиск |
+| `Ctrl+Shift+A` | Sirius AI |
 | `Ctrl+\`` | Терминал |
-| `F5` | Запустить проект |
+| `F5` | Запуск проекта |
 
-## AI — команды управления файлами
+## AI-инструменты
 
 | Команда | Описание |
 |---------|----------|
 | `[CREATEFILE:путь]` | Создать файл |
-| `[EDITFILE:путь]` | Изменить файл |
-| `[READFILE:путь]` | Прочитать файл |
-| `[READDIR:путь]` | Список файлов в папке |
-| `[DELETEFILE:путь]` | Удалить файл |
+| `[EDITFILE:путь]` | Изменить (полное тело) |
+| `[READFILE:путь]` | Прочитать |
+| `[READDIR:путь]` | Список папки |
+| `[DELETEFILE:путь]` | В `.trash/` после подтверждения |
 
-Пути указываются **относительно** корня проекта. Все операции только внутри открытой папки. Пример: `[CREATEFILE:src/main.py]`
+Пути **относительно** корня проекта.
 
-## Сборка
+## Тесты и сборка
 
 ```bash
-npm run build
+npm run test          # vitest
+npm run test:ci       # tsc + vitest + static checks
+npm run build         # TypeScript → dist/
+npm run dist          # NSIS + portable → release/ (после predist)
 ```
 
-Сборка выполняется перед `npm start` автоматически.
+Подробности: [СБОРКА.md](./СБОРКА.md).
 
 ## Лицензия
 

@@ -12,6 +12,7 @@
     "test:ci": "powershell -ExecutionPolicy Bypass -File scripts/test-pipeline.ps1",
     "test:cover": "powershell -ExecutionPolicy Bypass -File scripts/test-pipeline.ps1 -Cover",
     "rebuild:native": "node scripts/postinstall.js --rebuild-native",
+    "predist": "npm run test:ci",
     "dist": "npm run build && electron-builder --win nsis portable",
     "postinstall": "node scripts/postinstall.js"
   },
@@ -44,6 +45,8 @@
       "renderer/**/*",
       "package.json",
       "icon.ico",
+      "LICENSE",
+      "README.md",
       "node_modules/**/*",
       "!node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}",
       "!node_modules/*/{test,__tests__,tests,powered-test,example,examples}",
@@ -68,7 +71,8 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+      "createStartMenuShortcut": true,
+      "license": "LICENSE"
     }
   },
   "dependencies": {
